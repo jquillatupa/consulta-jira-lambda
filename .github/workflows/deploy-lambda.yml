@@ -1,0 +1,49 @@
+name: CI/CD Lambda (SAM)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install AWS SAM CLI
+        run: |
+          sudo pip3 install aws-sam-cli
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+
+      - name: sam build
+        run: sam build
+
+      - name: sam deploy
+        run: sam deploy \
+          --stack-name consulta-jira-lambda \
+          --no-confirm-changeset \
+          --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_IAM
+
+      - name: Smoke-test Lambda
+        run: |
+          aws lambda invoke \
+            --function-name consulta-jira-lambda-HelloWorldFunction-ABC123 \
+            --payload '{}' response.json
+          cat response.json
