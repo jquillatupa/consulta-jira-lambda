@@ -8,42 +8,36 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region:            us-east-1
 
-      - name: Install AWS SAM CLI
-        run: |
-          sudo pip3 install aws-sam-cli
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v1
+        with:
+          version: 'latest'  # O bien pon la versión concreta que necesites, ej. '1.124.0'
 
       - name: Install Python dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: sam build
+      - name: Build with SAM
         run: sam build
 
-      - name: sam deploy
-        run: sam deploy \
-          --stack-name consulta-jira-lambda \
-          --no-confirm-changeset \
-          --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_IAM
-
-      - name: Smoke-test Lambda
+      - name: Deploy with SAM
         run: |
-          aws lambda invoke \
-            --function-name consulta-jira-lambda-HelloWorldFunction-ABC123 \
-            --payload '{}' response.json
-          cat response.json
+          sam deploy \
+            --stack-name consulta-jira \
+            --region us-east-1 \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --capabilities CAPABILITY_IAM
