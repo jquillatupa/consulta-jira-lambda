@@ -2,59 +2,56 @@ name: CI/CD Lambda (SAM)
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1         # <- Ajusta tu región
+      STACK_NAME: my-sam-stack      # <- Ajusta tu nombre de stack
     steps:
-      # 1. Comprobar el código
+      # 1. Clona tu repositorio
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # 2. Configurar credenciales AWS
+      # 2. Configura credenciales AWS (puede ser con Access Key o Role)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Configurar Python
+      # 3. Instala la versión de Python que SAM CLI necesita
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
-          python-version: 3.10
+          python-version: '3.10'
 
-      # 4. Install AWS SAM CLI via pip (reemplaza setup-sam@v1)
+      # 4. Instala AWS SAM CLI (vía pip)
       - name: Install AWS SAM CLI via pip
         run: |
-          python -m pip install --upgrade pip
           pip install aws-sam-cli
 
-      # 5. Instalar dependencias Python de tu función
-      - name: Install Python dependencies
-        run: |
-          cd hello_world
-          pip install -r requirements.txt --target ./.aws-sam/deps
-
-      # 6. Compilar con SAM
+      # 5. Construye tu función con SAM
       - name: Build with SAM
-        run: sam build --use-container
+        run: |
+          sam build
 
-      # 7. Desplegar con SAM
+      # 6. Despliega tu stack (sin confirmación interactiva)
       - name: Deploy with SAM
         run: |
           sam deploy \
-            --stack-name consulta-jira-lambda \
-            --s3-bucket mi-bucket-deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
             --capabilities CAPABILITY_IAM \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+            --no-confirm-changeset
 
-      # 8. (Opcional) Notifica o limpia
+      # (Opcional) Limpieza post-despliegue
       - name: Post-deploy cleanup
-        if: always()
-        run: echo "Done!"
+        run: |
+          echo "Despliegue completado."
+
