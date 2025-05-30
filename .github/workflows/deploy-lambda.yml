@@ -2,17 +2,18 @@ name: CI/CD Lambda (SAM)
 
 on:
   push:
-    branches:
-      - main
-
-env:
-  AWS_REGION: us-east-1           # cambia por tu región
-  SAM_STACK_NAME: my-sam-stack   # nombre de tu stack CloudFormation
-  SAM_S3_BUCKET: my-deploy-bucket # bucket S3 para artefactos SAM
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      SAM_S3_BUCKET: ${{ secrets.SAM_S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     steps:
       - name: Checkout repository
@@ -21,34 +22,35 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: 3.10
 
       - name: Install AWS SAM CLI via pip
         run: |
-          python -m pip install --upgrade pip
-          pip install aws-sam-cli
+          pip install --user aws-sam-cli
+          echo "::add-path::${HOME}/.local/bin"
 
       - name: Install Python dependencies & build with SAM
         run: |
           sam --version
-          sam build --use-container
+          pip install -r requirements.txt
+          sam build
 
       - name: Deploy with SAM
         run: |
           sam deploy \
             --no-confirm-changeset \
-            --stack-name ${{ env.SAM_STACK_NAME }} \
-            --s3-bucket ${{ env.SAM_S3_BUCKET }} \
+            --stack-name consulta-jira-lambda \
+            --region $AWS_REGION \
+            --resolve-s3 \
+            --s3-bucket $SAM_S3_BUCKET \
             --capabilities CAPABILITY_IAM
 
       - name: Post-deploy cleanup
-        if: always()
-        run: |
-          echo "Done"
+        run: echo "Done"
