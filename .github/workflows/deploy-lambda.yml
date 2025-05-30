@@ -1,4 +1,4 @@
-name: CI/CD Lambda (SAM)
+name: CI/CD Lambda
 
 on:
   push:
