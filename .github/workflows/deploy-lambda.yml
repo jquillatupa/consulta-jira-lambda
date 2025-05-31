@@ -13,15 +13,18 @@ jobs:
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}               # <–– Reemplaza por otra variable si quieres
       CFN_STACK_NAME: ${{ secrets.CFN_STACK_NAME }}
+      # En este caso, usamos un secreto diferente para el bucket de output
+      OUTPUT_S3_BUCKET: ${{ secrets.OUTPUT_S3_BUCKET }} # Debes crear este secreto en GitHub
+      JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 
     steps:
-      # 1) Chequear el código del repositorio
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Configurar credenciales de AWS
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -29,24 +32,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3) Instalar Python 3.10 y distutils (sin reinstalar pip)
       - name: Install Python 3.10 and distutils
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y software-properties-common curl
-          # Agregar repositorio Deadsnakes para Python 3.10
+          sudo apt-get install -y software-properties-common
           sudo add-apt-repository ppa:deadsnakes/ppa -y
           sudo apt-get update -y
-          # Instalar Python 3.10 y distutils para Python 3.10
           sudo apt-get install -y python3.10 python3.10-distutils
-          # Asegurarnos de que 'python3' apunte a 'python3.10'
           sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
-      # 4) Build de la aplicación SAM
       - name: SAM Build
         run: sam build
 
-      # 5) Package y subida de artefactos a S3
       - name: SAM Package
         run: |
           sam package \
@@ -55,7 +52,6 @@ jobs:
             --output-template-file packaged.yaml \
             --region $AWS_REGION
 
-      # 6) Deploy de la plantilla empaquetada a CloudFormation
       - name: SAM Deploy
         run: |
           sam deploy \
@@ -63,12 +59,16 @@ jobs:
             --stack-name $CFN_STACK_NAME \
             --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
             --region $AWS_REGION \
-            --no-confirm-changeset
+            --no-confirm-changeset \
+            --parameter-overrides \
+              JiraDomainParam=${{ env.JIRA_DOMAIN }} \
+              JiraUserParam=${{ env.JIRA_USER }} \
+              JiraApiTokenParam=${{ env.JIRA_API_TOKEN }} \
+              OutputS3BucketParam=${{ env.OUTPUT_S3_BUCKET }}
 
-      # 7) (Opcional) Mostrar los Outputs de CloudFormation
       - name: Show CloudFormation Outputs
         run: |
-          aws cloudformation describe-stacks \
-            --stack-name $CFN_STACK_NAME \
-            --query "Stacks[0].Outputs" \
+          & aws cloudformation describe-stacks `
+            --stack-name $CFN_STACK_NAME `
+            --query "Stacks[0].Outputs" `
             --output table

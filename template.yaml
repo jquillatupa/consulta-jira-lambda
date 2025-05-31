@@ -2,30 +2,68 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   consulta-jira-lambda
-
-  Sample SAM Template for consulta-jira-lambda
+  Esta plantilla despliega una función Lambda que consulta Jira,
+  genera un Excel con los issues, lo sube a S3 y devuelve la URL.
 
 Globals:
   Function:
-    Timeout: 3
+    Timeout: 60         # Extendido a 1 min en caso de que la consulta a Jira o el Excel tarden
     Tracing: Active
     LoggingConfig:
       LogFormat: JSON
 
-  Api:
-    TracingEnabled: true
+Parameters:
+  # Parámetros para las credenciales de Jira
+  JiraDomainParam:
+    Type: String
+    Description: "Dominio de tu instancia Jira (ej: midominio.atlassian.net)"
+  JiraUserParam:
+    Type: String
+    Description: "Usuario o correo de Jira para autenticación básica"
+  JiraApiTokenParam:
+    Type: String
+    Description: "API token de Jira (generado en Atlassian)"
+
+  # Parámetro para el bucket S3 donde se subirá el reporte
+  OutputS3BucketParam:
+    Type: String
+    Description: "Nombre del bucket S3 donde se guardará el Excel"
 
 Resources:
+
   HelloWorldFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: consulta-jira-lambda-function
       CodeUri: hello_world/
       Handler: app.lambda_handler
       Runtime: python3.10
       Architectures:
         - x86_64
+      Environment:
+        Variables:
+          JIRA_DOMAIN: !Ref JiraDomainParam
+          JIRA_USER: !Ref JiraUserParam
+          JIRA_API_TOKEN: !Ref JiraApiTokenParam
+          OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource: !Sub "arn:aws:s3:::${OutputS3BucketParam}/*"
+        # Si quisieras guardar tu API token en Secrets Manager, descomenta este bloque
+        # y quita de Parameters => JiraUserParam / JiraApiTokenParam
+        #
+        #- Statement:
+        #    - Effect: Allow
+        #      Action:
+        #        - secretsmanager:GetSecretValue
+        #      Resource: !Ref JiraSecretArnParam
+
       Events:
-        HelloWorld:
+        HelloWorld:                       # nombre interno para el evento API
           Type: Api
           Properties:
             Path: /hello
@@ -33,13 +71,8 @@ Resources:
 
 Outputs:
   HelloWorldApi:
-    Description: API Gateway endpoint URL for Prod stage for Hello World function
+    Description: "API Gateway URL para llamar a la Lambda"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-
-  HelloWorldFunction:
-    Description: Hello World Lambda Function ARN
+  HelloWorldFunctionArn:
+    Description: "ARN de la función Lambda"
     Value: !GetAtt HelloWorldFunction.Arn
-
-  HelloWorldFunctionIamRole:
-    Description: Implicit IAM Role created for Hello World function
-    Value: !GetAtt HelloWorldFunctionRole.Arn
