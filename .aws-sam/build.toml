@@ -5,6 +5,7 @@ codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\hello_world"
 runtime = "python3.10"
 architecture = "x86_64"
 handler = "app.lambda_handler"
+source_hash = "ee772ba9089ff5b17595306566a8398edf93a752644df09cf87bb94e57963741"
 manifest_hash = "7f982da4668fe7a70743957b561487d5"
 packagetype = "Zip"
 functions = ["HelloWorldFunction"]

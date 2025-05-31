@@ -7,13 +7,14 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 60         # Extendido a 1 min en caso de que la consulta a Jira o el Excel tarden
+    # Si quieres que TODAS tus Lambdas hereden 900s, 
+    # puedes descomentar la línea siguiente:
+    # Timeout: 900
     Tracing: Active
     LoggingConfig:
       LogFormat: JSON
 
 Parameters:
-  # Parámetros para las credenciales de Jira
   JiraDomainParam:
     Type: String
     Description: "Dominio de tu instancia Jira (ej: midominio.atlassian.net)"
@@ -23,8 +24,6 @@ Parameters:
   JiraApiTokenParam:
     Type: String
     Description: "API token de Jira (generado en Atlassian)"
-
-  # Parámetro para el bucket S3 donde se subirá el reporte
   OutputS3BucketParam:
     Type: String
     Description: "Nombre del bucket S3 donde se guardará el Excel"
@@ -34,18 +33,27 @@ Resources:
   HelloWorldFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: consulta-jira-lambda-function
+      FunctionName: ValidarHUFunction
       CodeUri: hello_world/
       Handler: app.lambda_handler
       Runtime: python3.10
       Architectures:
         - x86_64
+
+      # ─────────────────────────────────────────────────────────
+      #  Timeout en 900 segundos (15 min) y memoria en 2048 MB
+      # ─────────────────────────────────────────────────────────
+      Timeout: 900
+      MemorySize: 2048
+
       Environment:
         Variables:
-          JIRA_DOMAIN: !Ref JiraDomainParam
-          JIRA_USER: !Ref JiraUserParam
+          JIRA_DOMAIN:    !Ref JiraDomainParam
+          JIRA_USER:      !Ref JiraUserParam
           JIRA_API_TOKEN: !Ref JiraApiTokenParam
-          OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
+          S3_BUCKET:      !Ref OutputS3BucketParam
+          CRUDO_KEY:      "reports/jira_data_2025-05-31.xlsx"
+
       Policies:
         - Statement:
             - Effect: Allow
@@ -53,17 +61,9 @@ Resources:
                 - s3:PutObject
                 - s3:GetObject
               Resource: !Sub "arn:aws:s3:::${OutputS3BucketParam}/*"
-        # Si quisieras guardar tu API token en Secrets Manager, descomenta este bloque
-        # y quita de Parameters => JiraUserParam / JiraApiTokenParam
-        #
-        #- Statement:
-        #    - Effect: Allow
-        #      Action:
-        #        - secretsmanager:GetSecretValue
-        #      Resource: !Ref JiraSecretArnParam
 
       Events:
-        HelloWorld:                       # nombre interno para el evento API
+        HelloWorld:                       
           Type: Api
           Properties:
             Path: /hello
