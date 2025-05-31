@@ -236,6 +236,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+# .gitignore
+env.json
 
 # Build folder
 
