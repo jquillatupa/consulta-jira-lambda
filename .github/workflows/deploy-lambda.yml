@@ -29,17 +29,34 @@ jobs:
           aws-region: us-east-1
 
       # ───────────────────────────────────────────────────────────────────────────
-      # Si existiera una función Lambda llamada “ValidarHUFunction”, la eliminamos
+      # 1) Si existe una función Lambda llamada “ValidarHUFunction”, la eliminamos
       # ───────────────────────────────────────────────────────────────────────────
-      - name: Eliminar función Lambda previa (si existe)
-        # Nota: asume que en tu template fijo el nombre de la función como “ValidarHUFunction”
+      - name: Eliminar Lambda previa (si existe)
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
-            echo "La función ValidarHUFunction ya existe. Eliminando…"
+            echo "🗑️ La función ValidarHUFunction ya existe. Eliminando..."
             aws lambda delete-function --function-name ValidarHUFunction
             echo "✅ Función ValidarHUFunction eliminada."
           else
-            echo "ℹ️ No existe ninguna función ValidarHUFunction. Continúo con el build."
+            echo "ℹ️ No existe ninguna función ValidarHUFunction. Continúo..."
+          fi
+
+      # ───────────────────────────────────────────────────────────────────────────
+      # 2) Si la pila CloudFormation “mi-stack-jira” está en ROLLBACK_COMPLETE, la borramos
+      # ───────────────────────────────────────────────────────────────────────────
+      - name: Eliminar pila CF anterior en ROLLBACK_COMPLETE
+        run: |
+          # Intentamos obtener el estado de la pila. Si no existe, describe-stacks fallará y devolverá “NONE”.
+          status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
+                    --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
+          if [ "$status" = "ROLLBACK_COMPLETE" ]; then
+            echo "🛠️ La pila mi-stack-jira está en estado ROLLBACK_COMPLETE. Eliminando..."
+            aws cloudformation delete-stack --stack-name mi-stack-jira
+            echo "⏳ Esperando a que termine la eliminación de la pila..."
+            aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
+            echo "✅ Pila mi-stack-jira eliminada."
+          else
+            echo "ℹ️ Estado de la pila mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
           fi
 
       - name: Construir con SAM (incluye dependencias)
