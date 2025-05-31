@@ -29,11 +29,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3) Build the SAM application
+      # 3) Install Python 3.10 (required for sam build with runtime python3.10)
+      - name: Install Python 3.10
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y python3.10 python3.10-distutils curl
+          # Install pip for Python 3.10
+          curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10
+          # Make python3 point to python3.10
+          sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+
+      # 4) Build the SAM application
       - name: SAM Build
         run: sam build
 
-      # 4) Package the artifacts and upload them to S3
+      # 5) Package the artifacts and upload them to S3
       - name: SAM Package
         run: |
           sam package \
@@ -42,7 +52,7 @@ jobs:
             --output-template-file packaged.yaml \
             --region $AWS_REGION
 
-      # 5) Deploy the packaged template to CloudFormation
+      # 6) Deploy the packaged template to CloudFormation
       - name: SAM Deploy
         run: |
           sam deploy \
@@ -52,7 +62,7 @@ jobs:
             --region $AWS_REGION \
             --no-confirm-changeset
 
-      # 6) (Optional) Show the CloudFormation Outputs
+      # 7) (Optional) Show the CloudFormation Outputs
       - name: Show CloudFormation Outputs
         run: |
           aws cloudformation describe-stacks \
