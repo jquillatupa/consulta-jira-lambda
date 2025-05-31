@@ -1,12 +1,16 @@
-name: build-and-deploy-aws
+name: build-and-deploy
 
 on:
   push:
     branches: [ main ]
 
+env:
+  AWS_REGION: us-east-1    # o la región que uses
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Chequear código
         uses: actions/checkout@v4
@@ -26,7 +30,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Construir con SAM (incluye dependencias)
         run: sam build
@@ -38,12 +42,14 @@ jobs:
             --s3-bucket ${{ secrets.SAM_DEPLOY_BUCKET }} \
             --output-template-file packaged.yaml
 
-      - name: Desplegar con SAM
+      - name: Desplegar con SAM (sin confirmación interactiva)
         run: |
           sam deploy \
             --template-file packaged.yaml \
             --stack-name mi-stack-jira \
             --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
             --parameter-overrides \
               JiraDomainParam="${{ secrets.JIRA_DOMAIN }}" \
               JiraUserParam="${{ secrets.JIRA_USER }}" \
