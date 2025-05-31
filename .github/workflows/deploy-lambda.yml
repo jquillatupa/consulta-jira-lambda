@@ -8,11 +8,26 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Clonar el repositorio
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Configura las credenciales de AWS usando los secretos que ya creaste
+      # 2. Instalar Python 3.10 en el runner
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'        # Asegura que 'python3.10' quede en el PATH
+          cache: 'pip'
+
+      # 3. Instalar AWS SAM CLI (si no lo tienes ya en el runner)
+      - name: Install AWS SAM CLI
+        run: |
+          pip install --upgrade pip
+          pip install aws-sam-cli
+
+      # 4. Configurar credenciales de AWS usando los Secrets definidos en GitHub
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -20,12 +35,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # Construye la aplicación SAM
+      # 5. Construir la aplicación SAM
       - name: Build AWS SAM Application
         run: |
           sam build
 
-      # Empaqueta la plantilla SAM, subiendo los artefactos a S3
+      # 6. Empaquetar (package) la aplicación SAM, subiendo el código al bucket S3
       - name: Package AWS SAM Application
         run: |
           sam package \
@@ -34,7 +49,7 @@ jobs:
             --output-template-file packaged.yaml \
             --region ${{ secrets.AWS_REGION }}
 
-      # Despliega la aplicación SAM, pasando todos los parámetros obligatorios
+      # 7. Desplegar (deploy) la aplicación SAM, inyectando todos los parámetros
       - name: Deploy AWS SAM Application
         run: |
           sam deploy \
