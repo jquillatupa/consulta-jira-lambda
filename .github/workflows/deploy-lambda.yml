@@ -29,14 +29,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3) Install Python 3.10 (required for sam build with runtime python3.10)
+      # 3) Install Python 3.10 and distutils (necesario para sam build con runtime python3.10)
       - name: Install Python 3.10
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y python3.10 python3.10-distutils curl
-          # Install pip for Python 3.10
+          # En ubuntu-latest, Python 3.10 ya está disponible por defecto
+          sudo apt-get install -y python3.10 python3-distutils curl
+          # Instalar pip para Python 3.10
           curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10
-          # Make python3 point to python3.10
+          # Asegurarse de que 'python3' apunte a 'python3.10'
           sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
       # 4) Build the SAM application
