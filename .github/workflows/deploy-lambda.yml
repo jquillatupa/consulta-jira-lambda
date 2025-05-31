@@ -1,7 +1,6 @@
 # .github/workflows/deploy-sam.yaml
 name: CI/CD for SAM Lambda
 
-# Se dispara en cada push a main (puedes ajustarlo a cualquier rama o tag):
 on:
   push:
     branches:
@@ -18,11 +17,11 @@ jobs:
       CFN_STACK_NAME: ${{ secrets.CFN_STACK_NAME }}
 
     steps:
-      # 1) Chequear el código desde el repositorio
+      # 1) Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Configurar credenciales de AWS
+      # 2) Configure AWS credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -30,25 +29,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3) (Opcional) Instalar SAM CLI
-      # GitHub Ubuntu Runner ya incluye AWS CLI preinstalado, pero no siempre SAM CLI.
-      # Si no está presente, lo instalamos aquí:
-      - name: Install AWS SAM CLI
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y unzip curl
-          SAM_VERSION="1.121.0"   # Ajusta a la versión que prefieras
-          curl -Lo sam.zip https://github.com/aws/aws-sam-cli/releases/download/v${SAM_VERSION}/aws-sam-cli-linux-x86_64.zip
-          unzip sam.zip -d sam-installation
-          sudo ./sam-installation/install
-          rm -rf sam.zip sam-installation
-
-      # 4) Construir (build) el proyecto SAM
+      # 3) Build the SAM application
       - name: SAM Build
-        run: |
-          sam build
+        run: sam build
 
-      # 5) Empaquetar (package) y publicar artefactos a S3
+      # 4) Package the artifacts and upload them to S3
       - name: SAM Package
         run: |
           sam package \
@@ -57,7 +42,7 @@ jobs:
             --output-template-file packaged.yaml \
             --region $AWS_REGION
 
-      # 6) Desplegar (deploy) la plantilla empaquetada en CloudFormation
+      # 5) Deploy the packaged template to CloudFormation
       - name: SAM Deploy
         run: |
           sam deploy \
@@ -67,7 +52,7 @@ jobs:
             --region $AWS_REGION \
             --no-confirm-changeset
 
-      # 7) (Opcional) Mostrar los Outputs de CloudFormation
+      # 6) (Optional) Show the CloudFormation Outputs
       - name: Show CloudFormation Outputs
         run: |
           aws cloudformation describe-stacks \
