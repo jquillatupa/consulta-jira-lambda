@@ -1,6 +1,17 @@
 # hello_world/app.py
-
+import sys
 import os
+
+# Añade el subdirectorio python/ al path de módulos
+current_dir = os.path.dirname(os.path.realpath(__file__))
+vendor_dir = os.path.join(current_dir, "python")
+sys.path.insert(0, vendor_dir)
+
+import pandas as pd
+import openpyxl
+# (resto de imports)
+
+#import os
 import json
 import logging
 import tempfile
