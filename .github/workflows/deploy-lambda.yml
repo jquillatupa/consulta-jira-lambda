@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Configurar credenciales de AWS
+      # 2) Configurar credenciales de AWSS
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
