@@ -1,56 +1,76 @@
-name: CI/CD Lambda
+# .github/workflows/deploy-sam.yaml
+name: CI/CD for SAM Lambda
 
+# Se dispara en cada push a main (puedes ajustarlo a cualquier rama o tag):
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  build-and-deploy:
+  deploy:
+    name: Build & Deploy SAM Application
     runs-on: ubuntu-latest
+
     env:
-      AWS_REGION: us-east-1
-      SAM_S3_BUCKET: ${{ secrets.SAM_S3_BUCKET }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CFN_STACK_NAME: ${{ secrets.CFN_STACK_NAME }}
 
     steps:
+      # 1) Chequear el código desde el repositorio
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      # 2) Configurar credenciales de AWS
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.10
-
-      - name: Install AWS SAM CLI via pip
+      # 3) (Opcional) Instalar SAM CLI
+      # GitHub Ubuntu Runner ya incluye AWS CLI preinstalado, pero no siempre SAM CLI.
+      # Si no está presente, lo instalamos aquí:
+      - name: Install AWS SAM CLI
         run: |
-          pip install --user aws-sam-cli
-          echo "::add-path::${HOME}/.local/bin"
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl
+          SAM_VERSION="1.121.0"   # Ajusta a la versión que prefieras
+          curl -Lo sam.zip https://github.com/aws/aws-sam-cli/releases/download/v${SAM_VERSION}/aws-sam-cli-linux-x86_64.zip
+          unzip sam.zip -d sam-installation
+          sudo ./sam-installation/install
+          rm -rf sam.zip sam-installation
 
-      - name: Install Python dependencies & build with SAM
+      # 4) Construir (build) el proyecto SAM
+      - name: SAM Build
         run: |
-          sam --version
-          pip install -r requirements.txt
           sam build
 
-      - name: Deploy with SAM
+      # 5) Empaquetar (package) y publicar artefactos a S3
+      - name: SAM Package
+        run: |
+          sam package \
+            --template-file .aws-sam/build/template.yaml \
+            --s3-bucket $S3_BUCKET \
+            --output-template-file packaged.yaml \
+            --region $AWS_REGION
+
+      # 6) Desplegar (deploy) la plantilla empaquetada en CloudFormation
+      - name: SAM Deploy
         run: |
           sam deploy \
-            --no-confirm-changeset \
-            --stack-name consulta-jira-lambda \
+            --template-file packaged.yaml \
+            --stack-name $CFN_STACK_NAME \
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
             --region $AWS_REGION \
-            --resolve-s3 \
-            --s3-bucket $SAM_S3_BUCKET \
-            --capabilities CAPABILITY_IAM
+            --no-confirm-changeset
 
-      - name: Post-deploy cleanup
-        run: echo "Done"
+      # 7) (Opcional) Mostrar los Outputs de CloudFormation
+      - name: Show CloudFormation Outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name $CFN_STACK_NAME \
+            --query "Stacks[0].Outputs" \
+            --output table
