@@ -1,4 +1,3 @@
-# .github/workflows/deploy-sam.yaml
 name: CI/CD for SAM Lambda
 
 on:
@@ -7,68 +6,44 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: Build & Deploy SAM Application
+  build-and-deploy:
     runs-on: ubuntu-latest
-
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}               # <–– Reemplaza por otra variable si quieres
-      CFN_STACK_NAME: ${{ secrets.CFN_STACK_NAME }}
-      # En este caso, usamos un secreto diferente para el bucket de output
-      OUTPUT_S3_BUCKET: ${{ secrets.OUTPUT_S3_BUCKET }} # Debes crear este secreto en GitHub
-      JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
-      JIRA_USER: ${{ secrets.JIRA_USER }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Configura las credenciales de AWS usando los secretos que ya creaste
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Install Python 3.10 and distutils
+      # Construye la aplicación SAM
+      - name: Build AWS SAM Application
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y software-properties-common
-          sudo add-apt-repository ppa:deadsnakes/ppa -y
-          sudo apt-get update -y
-          sudo apt-get install -y python3.10 python3.10-distutils
-          sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+          sam build
 
-      - name: SAM Build
-        run: sam build
-
-      - name: SAM Package
+      # Empaqueta la plantilla SAM, subiendo los artefactos a S3
+      - name: Package AWS SAM Application
         run: |
           sam package \
-            --template-file .aws-sam/build/template.yaml \
-            --s3-bucket $S3_BUCKET \
+            --template-file template.yaml \
+            --s3-bucket ${{ secrets.S3_BUCKET }} \
             --output-template-file packaged.yaml \
-            --region $AWS_REGION
+            --region ${{ secrets.AWS_REGION }}
 
-      - name: SAM Deploy
+      # Despliega la aplicación SAM, pasando todos los parámetros obligatorios
+      - name: Deploy AWS SAM Application
         run: |
           sam deploy \
             --template-file packaged.yaml \
-            --stack-name $CFN_STACK_NAME \
+            --stack-name ${{ secrets.CFN_STACK_NAME }} \
+            --region ${{ secrets.AWS_REGION }} \
             --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
-            --region $AWS_REGION \
-            --no-confirm-changeset \
             --parameter-overrides \
-              JiraDomainParam=${{ env.JIRA_DOMAIN }} \
-              JiraUserParam=${{ env.JIRA_USER }} \
-              JiraApiTokenParam=${{ env.JIRA_API_TOKEN }} \
-              OutputS3BucketParam=${{ env.OUTPUT_S3_BUCKET }}
-
-      - name: Show CloudFormation Outputs
-        run: |
-          & aws cloudformation describe-stacks `
-            --stack-name $CFN_STACK_NAME `
-            --query "Stacks[0].Outputs" `
-            --output table
+              JiraDomainParam="${{ secrets.JIRA_DOMAIN }}" \
+              JiraApiTokenParam="${{ secrets.JIRA_API_TOKEN }}" \
+              JiraUserParam="${{ secrets.JIRA_USER }}" \
+              OutputS3BucketParam="${{ secrets.OUTPUT_S3_BUCKET }}"
