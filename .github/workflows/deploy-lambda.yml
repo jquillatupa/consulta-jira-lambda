@@ -29,7 +29,7 @@ jobs:
           aws-region: us-east-1
 
       # ───────────────────────────────────────────────────────────────────────────
-      # 1) Eliminar cualquier Lambda llamada “ValidarHUFunction” antes de crear la pila
+      # 1) Eliminar cualquier Lambda llamada “ValidarHUFunction” antes de crear la pilaA
       # ───────────────────────────────────────────────────────────────────────────
       - name: Eliminar Lambda “ValidarHUFunction” si existe
         run: |
