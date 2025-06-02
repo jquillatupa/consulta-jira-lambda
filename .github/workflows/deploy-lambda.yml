@@ -29,9 +29,9 @@ jobs:
           aws-region: us-east-1
 
       # ───────────────────────────────────────────────────────────────────────────
-      # 1) Eliminar cualquier Lambda llamada “ValidarHUFunction” antes de crear la pila
+      # 1) Eliminar cualquier Lambda llamada ValidarHUFunction antes de crear la pila
       # ───────────────────────────────────────────────────────────────────────────
-      - name: Eliminar Lambda “ValidarHUFunction” si existe
+      - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
             echo "🗑️  La función ValidarHUFunction ya existe. Eliminando..."
@@ -44,9 +44,8 @@ jobs:
       # ───────────────────────────────────────────────────────────────────────────
       # 2) Si la pila “mi-stack-jira” está en ROLLBACK_COMPLETE, eliminarla antes
       # ───────────────────────────────────────────────────────────────────────────
-      - name: Eliminar pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
+      - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
-          # Obtenemos el estado de “mi-stack-jira”. Si no existe, la variable será “NONE”.
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
                     --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
           if [ "$status" = "ROLLBACK_COMPLETE" ]; then
