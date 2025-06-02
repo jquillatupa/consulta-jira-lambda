@@ -59,7 +59,7 @@ jobs:
           fi
 
       # ───────────────────────────────────────────────────────────────────────────
-      # 3) Build, Package y Deploy con SAM
+      # 3) Build, Package y Deploy con SAMM
       # ───────────────────────────────────────────────────────────────────────────
       - name: Construir con SAM (incluye dependencias)
         run: sam build
