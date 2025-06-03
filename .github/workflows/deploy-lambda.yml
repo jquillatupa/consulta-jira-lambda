@@ -28,7 +28,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # 1) EEliminar Lambda “ValidarHUFunction” si existe
+      # ───────────────────────────────────────────────────────────────────────────
+      # 1) Eliminar Lambda “ValidarHUFunction” si existe
+      # ───────────────────────────────────────────────────────────────────────────
       - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
@@ -39,7 +41,9 @@ jobs:
             echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
           fi
 
+      # ───────────────────────────────────────────────────────────────────────────
       # 2) Eliminar pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
+      # ───────────────────────────────────────────────────────────────────────────
       - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
@@ -54,7 +58,19 @@ jobs:
             echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
           fi
 
-      # 3) Build, Package y Deploy con SAM
+      # ───────────────────────────────────────────────────────────────────────────
+      # 3) Construir el layer de Python dinámicamente (no versionado en Git)
+      # ───────────────────────────────────────────────────────────────────────────
+      - name: Construir layer de Python
+        working-directory: my-layers
+        run: |
+          # Instala las dependencias definidas en hello_world/requirements.txt
+          python -m pip install -r ../hello_world/requirements.txt -t ./python
+          cd ..
+
+      # ───────────────────────────────────────────────────────────────────────────
+      # 4) Build, Package y Deploy con SAM
+      # ───────────────────────────────────────────────────────────────────────────
       - name: Construir con SAM (incluye layer y dependencias)
         run: sam build
 
