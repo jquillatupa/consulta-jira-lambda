@@ -13,22 +13,32 @@ Parameters:
 
 Resources:
 
+  # -----------------------------------------
+  # 1) Definimos el layer “ValidarHUFunctionLayer”
+  # -----------------------------------------
   ValidarHUFunctionLayer:
-    Type: AWS::Serverless::LayerVersion
+    Type: AWS::Lambda::LayerVersion
     Properties:
-      LayerName: validar-hu-python-deps
-      Description: "Dependencias Python (pandas, jira, openpyxl, spacy, jinja2, etc.)"
-      ContentUri: lambda-layer-core.zip      # ← Apunta al ZIP que generaste
+      LayerName: validarhu-layer-minimo
+      Description: "Layer mínimo con spaCy + jira + openpyxl"
+      Content:
+        # Aquí referenciamos el ZIP que acabamos de crear
+        ZipFile: my-layers/lambda-layer-minimo.zip
       CompatibleRuntimes:
         - python3.10
 
+  # -----------------------------------------
+  # 2) Definimos la función Lambda “ValidarHUFunction”
+  # -----------------------------------------
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
       Runtime: python3.10
-      CodeUri: hello_world/                 # tu carpeta con app.py y lógica
+      CodeUri: hello_world/
+      MemorySize: 128
+      Timeout: 60
       Layers:
         - !Ref ValidarHUFunctionLayer
       Environment:
@@ -37,14 +47,17 @@ Resources:
           JIRA_USER: !Ref JiraUserParam
           JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
-      Timeout: 300
-      MemorySize: 512
+      Events:
+        HelloWorldApi:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
 
 Outputs:
-  ValidarHUFunctionArn:
+  HelloWorldApi:
+    Description: "API Gateway URL para llamar a la Lambda"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  HelloWorldFunctionArn:
     Description: "ARN de la función Lambda"
     Value: !GetAtt ValidarHUFunction.Arn
-
-  ValidarHUFunctionLayerArn:
-    Description: "ARN de la capa de dependencias"
-    Value: !Ref ValidarHUFunctionLayer

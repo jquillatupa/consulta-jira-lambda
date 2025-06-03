@@ -11,11 +11,12 @@ Parameters:
     Type: String
 Resources:
   ValidarHUFunctionLayer:
-    Type: AWS::Serverless::LayerVersion
+    Type: AWS::Lambda::LayerVersion
     Properties:
-      LayerName: validar-hu-python-deps
-      Description: Dependencias Python (pandas, jira, openpyxl, spacy, jinja2, etc.)
-      ContentUri: ..\..\lambda-layer-core.zip
+      LayerName: validarhu-layer-minimo
+      Description: "Layer m\xEDnimo con spaCy + jira + openpyxl"
+      Content:
+        ZipFile: my-layers/lambda-layer-minimo.zip
       CompatibleRuntimes:
       - python3.10
   ValidarHUFunction:
@@ -25,6 +26,8 @@ Resources:
       Handler: app.lambda_handler
       Runtime: python3.10
       CodeUri: ValidarHUFunction
+      MemorySize: 128
+      Timeout: 60
       Layers:
       - Ref: ValidarHUFunctionLayer
       Environment:
@@ -37,18 +40,22 @@ Resources:
             Ref: JiraApiTokenParam
           OUTPUT_S3_BUCKET:
             Ref: OutputS3BucketParam
-      Timeout: 300
-      MemorySize: 512
+      Events:
+        HelloWorldApi:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
     Metadata:
       SamResourceId: ValidarHUFunction
 Outputs:
-  ValidarHUFunctionArn:
+  HelloWorldApi:
+    Description: API Gateway URL para llamar a la Lambda
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/
+  HelloWorldFunctionArn:
     Description: "ARN de la funci\xF3n Lambda"
     Value:
       Fn::GetAtt:
       - ValidarHUFunction
       - Arn
-  ValidarHUFunctionLayerArn:
-    Description: ARN de la capa de dependencias
-    Value:
-      Ref: ValidarHUFunctionLayer

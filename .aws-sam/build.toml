@@ -6,7 +6,7 @@ runtime = "python3.10"
 architecture = "x86_64"
 handler = "app.lambda_handler"
 source_hash = "ee772ba9089ff5b17595306566a8398edf93a752644df09cf87bb94e57963741"
-manifest_hash = "5cc6ddd78b212f6a34ab4c9629ac14c9"
+manifest_hash = "da6cc77dc7fbfcd93929958dad477d59"
 packagetype = "Zip"
 functions = ["ValidarHUFunction"]
 

@@ -1,31 +1,5 @@
 # hello_world/requirements.txt
 
-# Cliente de Jira
 jira>=3.0.1
-
-# Procesamiento de datos
-pandas>=2.0.0
-numpy>=1.22.0
-
-# Para generar Excel
-openpyxl>=3.0.0   # o bien: xlsxwriter>=3.0.0   (puedes elegir el que prefieras)
-# Si usas spaCy en tu notebook, agrega la librería:
-spacy>=3.5.0      
-
-# (Opcional) si quisieras un modelo spaCy empaquetado:
-# en Lambda normalmente no conviene descargar todo el modelo pesado,
-# pero si necesitas pipelines de spaCy, puedes usar un Layer o descargar 
-# el modelo en /tmp/ al inicio. Aquí solo agregamos spaCy básico:
-# spacy-models-core
-
-xlsxwriter>=3.0.0
-
-# AWS SDK para Python (boto3 ya viene por defecto en el entorno de Lambda,
-# pero lo listamos en requirements para local):
-boto3>=1.26.0
-
-# (Opcional) si deseas enviar logs más detallados:
-# python-json-logger
-
-# (IMPORTANTE) SAM CLI requirement para python3.10-distutils, ya lo instalamos en Actions:
-# No necesitamos ponerlo aquí en requirements.txt; Lambda no lo usará.
+spacy>=3.5.0
+openpyxl>=3.0.0
