@@ -1,78 +1,50 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >
-  consulta-jira-lambda
-  Esta plantilla despliega una función Lambda que consulta Jira,
-  genera un Excel con los issues, lo sube a S3 y devuelve la URL.
-
-Globals:
-  Function:
-    # Si quieres que TODAS tus Lambdas hereden 900s, 
-    # puedes descomentar la línea siguiente:
-    # Timeout: 900
-    Tracing: Active
-    LoggingConfig:
-      LogFormat: JSON
 
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de tu instancia Jira (ej: midominio.atlassian.net)"
   JiraUserParam:
     Type: String
-    Description: "Usuario o correo de Jira para autenticación básica"
   JiraApiTokenParam:
     Type: String
-    Description: "API token de Jira (generado en Atlassian)"
   OutputS3BucketParam:
     Type: String
-    Description: "Nombre del bucket S3 donde se guardará el Excel"
 
 Resources:
 
-  HelloWorldFunction:
+  ValidarHUFunctionLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: validar-hu-python-deps
+      Description: "Dependencias Python (pandas, jira, openpyxl, spacy, jinja2, etc.)"
+      ContentUri: lambda-layer-core.zip      # ← Apunta al ZIP que generaste
+      CompatibleRuntimes:
+        - python3.10
+
+  ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
-      CodeUri: hello_world/
       Handler: app.lambda_handler
       Runtime: python3.10
-      Architectures:
-        - x86_64
-
-      # ─────────────────────────────────────────────────────────
-      #  Timeout en 900 segundos (15 min) y memoria en 2048 MB
-      # ─────────────────────────────────────────────────────────
-      Timeout: 900
-      MemorySize: 2048
-
+      CodeUri: hello_world/                 # tu carpeta con app.py y lógica
+      Layers:
+        - !Ref ValidarHUFunctionLayer
       Environment:
         Variables:
-          JIRA_DOMAIN:    !Ref JiraDomainParam
-          JIRA_USER:      !Ref JiraUserParam
+          JIRA_DOMAIN: !Ref JiraDomainParam
+          JIRA_USER: !Ref JiraUserParam
           JIRA_API_TOKEN: !Ref JiraApiTokenParam
-          S3_BUCKET:      !Ref OutputS3BucketParam
-          CRUDO_KEY:      "reports/jira_data_2025-05-31.xlsx"
-
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:PutObject
-                - s3:GetObject
-              Resource: !Sub "arn:aws:s3:::${OutputS3BucketParam}/*"
-
-      Events:
-        HelloWorld:                       
-          Type: Api
-          Properties:
-            Path: /hello
-            Method: get
+          OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
+      Timeout: 300
+      MemorySize: 512
 
 Outputs:
-  HelloWorldApi:
-    Description: "API Gateway URL para llamar a la Lambda"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunctionArn:
+  ValidarHUFunctionArn:
     Description: "ARN de la función Lambda"
-    Value: !GetAtt HelloWorldFunction.Arn
+    Value: !GetAtt ValidarHUFunction.Arn
+
+  ValidarHUFunctionLayerArn:
+    Description: "ARN de la capa de dependencias"
+    Value: !Ref ValidarHUFunctionLayer

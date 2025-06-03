@@ -28,9 +28,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 1) Eliminar cualquier Lambda llamada ValidarHUFunction antes de crear la pila
-      # ───────────────────────────────────────────────────────────────────────────
+      # 1) EEliminar Lambda “ValidarHUFunction” si existe
       - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
@@ -41,9 +39,7 @@ jobs:
             echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
           fi
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 2) Si la pila “mi-stack-jira” está en ROLLBACK_COMPLETE, eliminarla antes
-      # ───────────────────────────────────────────────────────────────────────────
+      # 2) Eliminar pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
       - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
@@ -58,13 +54,11 @@ jobs:
             echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
           fi
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 3) Build, Package y Deploy con SAMM
-      # ───────────────────────────────────────────────────────────────────────────
-      - name: Construir con SAM (incluye dependencias)
+      # 3) Build, Package y Deploy con SAM
+      - name: Construir con SAM (incluye layer y dependencias)
         run: sam build
 
-      - name: Empaquetar artefactos SAM
+      - name: Empaquetar artefactos SAM (función + layer)
         run: |
           sam package \
             --template-file .aws-sam/build/template.yaml \
