@@ -4,20 +4,42 @@ import os
 import re
 import json
 import logging
-import tempfile
 import boto3
 import spacy
 from datetime import datetime
 from jira import JIRA
 from collections import defaultdict
 from openpyxl import Workbook
+from botocore.config import Config
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-s3 = boto3.client("s3")
 
 # ===========================
-# Intentar cargar modelo spaCy en español (“en blanco”)
+# 1) Configurar cliente S3 con Signature V4 y PATH_STYLE
+# ===========================
+#
+#   En lugar de virtual‐hosted, usamos 'path' como addressing_style.
+#   Y no pasamos endpoint_url explicitamente (dejamos que boto3 use 
+#   el default “s3.<region>.amazonaws.com”) pero con PATH_STYLE la URL
+#   tendrá /<bucket>/… en vez de <bucket>.s3.<region>.amazonaws.com/…
+#
+AWS_REGION  = os.getenv("AWS_REGION",  "us-east-1")       # Debe coincidir con la región real del bucket (N. Virginia)
+BUCKET_NAME = os.getenv("OUTPUT_S3_BUCKET")              # p.ej. "reportes-jira-mi-proyecto-20"
+
+config_s3 = Config(
+    signature_version="s3v4",
+    s3={"addressing_style": "path"}   # <--- aquí forzamos Path‐Style
+)
+
+s3 = boto3.client(
+    "s3",
+    region_name=AWS_REGION,
+    config=config_s3
+)
+
+# ===========================
+# 2) Cargar modelo spaCy en español (“en blanco”)
 # ===========================
 try:
     nlp = spacy.blank("es")
@@ -27,7 +49,7 @@ except Exception:
     nlp = spacy.load("es_core_news_sm")
 
 # ===========================
-# CONFIGURACIÓN DE PUNTAJES
+# 3) CONFIGURACIÓN DE PUNTAJES
 # ===========================
 P1 = 20   # Descripción
 P2 = 20   # Criterios de Aceptación
@@ -37,9 +59,8 @@ P5 = 10   # Épica Principal
 P6 = 15   # Backlog Priorizado
 
 # ===========================
-# FUNCIONES AUXILIARES
+# 4) FUNCIONES AUXILIARES
 # ===========================
-
 def es_texto_valido(texto):
     if not isinstance(texto, str) or not texto.strip():
         return False
@@ -56,7 +77,11 @@ def _bloque_cqp(texto):
     t = limpiar_para_bloques(texto)
     lines = t.splitlines()
     c = q = p = False
-    variantes = ["quiero", "queremos", "quisiera", "quisiéramos", "necesito", "necesitamos", "requiero", "deseo", "busco", "me gustaría"]
+    variantes = [
+        "quiero", "queremos", "quisiera", "quisiéramos",
+        "necesito", "necesitamos", "requiero", "deseo",
+        "busco", "me gustaría"
+    ]
     for l in lines:
         w = l.split()
         if not w:
@@ -74,9 +99,12 @@ def _contiene_verbo_directo(txt, lista):
     return any(v in palabras for v in lista)
 
 # ===========================
-# EVALUACIÓN DESCRIPCIÓN (C1)
+# 5) EVALUACIÓN DESCRIPCIÓN (C1)
 # ===========================
-VERBOS_DESC      = ["crear", "desarrollar", "implementar", "validar", "mostrar", "generar", "obtener", "marcar"]
+VERBOS_DESC      = [
+    "crear", "desarrollar", "implementar",
+    "validar", "mostrar", "generar", "obtener", "marcar"
+]
 SUST_DESC        = ["validación", "consistencia", "ejecución", "documentación"]
 VARIANTES_QUIERO = ["quiero", "necesito", "busco", "me gustaría"]
 
@@ -100,7 +128,7 @@ def evaluar_descripcion_detallada(texto):
     palabras = len(txt.split())
     longitud = palabras >= 15 or (verbo_nlp and palabras >= 8)
 
-    # 5) Si estructura o acción (verbo o sustantivo) + longitud → puntaje
+    # 5) Si (estructura ∨ verbo_nlp ∨ sust_nlp) ∧ longitud → puntaje
     if (estructura or verbo_nlp or sust_nlp) and longitud:
         return P1
     return 0
@@ -112,7 +140,7 @@ def observar_falla_descripcion(texto):
     if len(txt.split()) < 15:
         fallas.append("Menos de 15 palabras")
     expr = re.search(
-        r"\bcomo\b.*\b(" + "|".join(VARIANTES_QUIERO) + r")\b.*\bpara\b", 
+        r"\bcomo\b.*\b(" + "|".join(VARIANTES_QUIERO) + r")\b.*\bpara\b",
         txt, flags=re.IGNORECASE
     )
     if not (expr or _bloque_cqp(texto)):
@@ -123,7 +151,7 @@ def observar_falla_descripcion(texto):
     return "; ".join(fallas)
 
 # ===========================
-# EVALUACIÓN CRITERIOS (C2)
+# 6) EVALUACIÓN CRITERIOS (C2)
 # ===========================
 VERBOS_CRIT = ["validar", "entregar", "realizar", "listar", "actualizar", "eliminar"]
 SUST_CRIT   = ["validación", "exactitud", "cumplimiento", "consistencia"]
@@ -158,13 +186,13 @@ def observar_falla_criterios(texto):
     return ""
 
 # ===========================
-# EVALUACIÓN ASIGNATARIO (C3)
+# 7) EVALUACIÓN ASIGNATARIO (C3)
 # ===========================
 def evaluar_criterio_asignatario(a):
     return P3 if isinstance(a, str) and a.strip() else 0
 
 # ===========================
-# EVALUACIÓN SUBTAREAS (C4)
+# 8) EVALUACIÓN SUBTAREAS (C4)
 # ===========================
 def evaluar_criterio_subtareas(n):
     try:
@@ -173,18 +201,13 @@ def evaluar_criterio_subtareas(n):
         return 0
 
 # ===========================
-# EVALUACIÓN ÉPICA PRINCIPAL (C5)
+# 9) EVALUACIÓN ÉPICA PRINCIPAL (C5)
 # ===========================
 def evaluar_criterio_epica(p):
     return P5 if isinstance(p, str) and p.strip() else 0
 
 # ===========================
-# EVALUACIÓN BACKLOG PRIORIZADO (C6)
-# (Implementamos este flag en el “pivot”, no en el detalle de cada historia)
-# ===========================
-
-# ===========================
-# OBSERVACIONES POR FILA (Opcional)
+# 10) OBSERVACIONES POR FILA (Opcional)
 # ===========================
 def obs_desc_row(r):
     desc = r["Description"] if isinstance(r["Description"], str) else ""
@@ -211,7 +234,8 @@ def obs_crit_row(r):
     if punt > 0:
         razones = []
         lines = crit.splitlines()
-        if len([l for l in lines if re.match(r"^\s*([-*•]|\d+\.)\s+.+", l)]) >= 2 or len([b for b in crit.split("\n\n") if len(b.split()) >= 4]) >= 2:
+        if len([l for l in lines if re.match(r"^\s*([-*•]|\d+\.)\s+.+", l)]) >= 2 \
+           or len([b for b in crit.split("\n\n") if len(b.split()) >= 4]) >= 2:
             razones.append("Lista OK")
         if any(t.pos_ == "VERB" for t in nlp(crit)):
             razones.append("Verbo NLP")
@@ -224,16 +248,22 @@ def obs_crit_row(r):
         return observar_falla_criterios(crit)
 
 # ===========================
-# HANDLER PRINCIPAL
+# 11) HANDLER PRINCIPAL
 # ===========================
 def lambda_handler(event, context):
-    # 1) Leer variables de entorno para Jira y S3
+    # 11.1) Leer variables de entorno para Jira
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
     jira_api_token = os.getenv("JIRA_API_TOKEN")
-    s3_bucket      = os.getenv("OUTPUT_S3_BUCKET")
 
-    missing = [v for v in ["JIRA_DOMAIN", "JIRA_USER", "JIRA_API_TOKEN", "OUTPUT_S3_BUCKET"] if not os.getenv(v)]
+    # 11.2) Asignar correctamente s3_bucket desde la variable global
+    s3_bucket = BUCKET_NAME  # "reportes-jira-mi-proyecto-20"
+
+    # 11.3) Validar que no falte ninguna variable de entorno
+    missing = [
+        v for v in ["JIRA_DOMAIN", "JIRA_USER", "JIRA_API_TOKEN", "OUTPUT_S3_BUCKET"]
+        if not os.getenv(v)
+    ]
     if missing:
         return {
             "statusCode": 400,
@@ -242,7 +272,7 @@ def lambda_handler(event, context):
             })
         }
 
-    # 2) Conectarse a Jira
+    # 11.4) Conectarse a Jira
     try:
         options = {"server": f"https://{jira_domain}"}
         jira_client = JIRA(options, basic_auth=(jira_user, jira_api_token))
@@ -253,7 +283,7 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Fallo al autenticar en Jira", "details": str(e)})
         }
 
-    # 3) Definir y ejecutar la consulta JQL en Jira
+    # 11.5) Definir y ejecutar la consulta JQL en Jira
     jql = "assignee=currentUser() AND resolution = Unresolved ORDER BY priority DESC"
     try:
         issues_jira = jira_client.search_issues(
@@ -278,7 +308,7 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Fallo al consultar Jira", "details": str(e)})
         }
 
-    # 4) Armar lista de diccionarios con todos los campos y puntajes
+    # 11.6) Armar lista de diccionarios con todos los campos y puntajes
     registros = []
     for issue in issues_jira:
         campos      = issue.fields
@@ -311,15 +341,13 @@ def lambda_handler(event, context):
             "Puntaje Asignatario": punt_asig,
             "Puntaje Subtareas": punt_subtk,
             "Puntaje Épica": punt_epica,
-            # Si deseas agregar observaciones por fila, puedes descomentar:
-            # "Observación Descripción": obs_desc_row(r),  
-            # "Observación Criterios": obs_crit_row(r)
+            # (Opcional: "Observación Descripción": obs_desc_row(r), "Observación Criterios": obs_crit_row(r))
         })
 
     if not registros:
         return {"statusCode": 200, "body": json.dumps({"message": "No se encontraron issues"})}
 
-    # 5) Construir “pivot” en memoria para conteo por assignee y status
+    # 11.7) Construir “pivot” en memoria para conteo por assignee y status
     pivot = defaultdict(lambda: defaultdict(int))
     for r in registros:
         a = r["Assignee"]
@@ -328,7 +356,7 @@ def lambda_handler(event, context):
 
     todos_estados = sorted({s for sub in pivot.values() for s in sub.keys()})
 
-    # 6) Crear un archivo Excel en /tmp/ con openpyxl
+    # 11.8) Crear un archivo Excel en /tmp/ con openpyxl
     timestamp   = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     nombre_arch = f"reporte_jira_{timestamp}.xlsx"
     ruta_local  = f"/tmp/{nombre_arch}"
@@ -385,8 +413,8 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Error al generar Excel", "details": str(e)})
         }
 
-    # 7) Subir el archivo Excel a S3
-    s3_key = f"reports/{nombre_arch}"
+    # 11.9) Subir el archivo Excel a S3 (prefijo "Analizado/")
+    s3_key = f"Analizado/{nombre_arch}"
     try:
         s3.upload_file(ruta_local, s3_bucket, s3_key)
     except Exception as e:
@@ -396,15 +424,25 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Fallo al subir a S3", "details": str(e)})
         }
 
-    # 8) Generar una URL pre-firmada para quien reciba la respuesta
+    # 11.10) Generar URL pre-firmada (Signature V4) en PATH‐STYLE
     try:
         url_presignada = s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": s3_bucket, "Key": s3_key},
-            ExpiresIn=3600  # válida por 1 hora
+            ExpiresIn=3600,    # 1 hora (3600 segundos)
+            
+           
         )
+       
     except Exception:
-        url_presignada = f"https://{s3_bucket}.s3.amazonaws.com/{s3_key}"
+        # En caso de que algo falle, devolvemos la ruta pública en path‐style
+        #url_presignada = (
+            #f"https://s3.{AWS_REGION}.amazonaws.com/"
+            #f"{s3_bucket}/{s3_key}"
+            
+        #)
+                url_presignada = f"https://{s3_bucket}.s3.amazonaws.com/{s3_key}"
+
 
     return {
         "statusCode": 200,
