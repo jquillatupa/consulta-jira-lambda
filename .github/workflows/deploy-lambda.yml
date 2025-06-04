@@ -1,7 +1,6 @@
-# .github/workflows/build-and-deploy.yaml
-
 name: build-and-deploy
 
+# Se dispara únicamente cuando haces push al branch main
 on:
   push:
     branches: [ main ]
@@ -35,16 +34,56 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            us-east-1
 
-      # 5) Construir (y limpiar) el layer dentro de my-layers/python/
+      # ───────────────────────────────────────────────────────────────────
+      # 5) Eliminar Lambda “ValidarHUFunction” si existe (opcional)
+      # ───────────────────────────────────────────────────────────────────
+      - name: Eliminar Lambda ValidarHUFunction si existe
+        run: |
+          if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
+            echo "🗑️  La función ValidarHUFunction ya existe. Eliminando..."
+            aws lambda delete-function --function-name ValidarHUFunction
+            echo "✅  Función ValidarHUFunction eliminada."
+          else
+            echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
+          fi
+
+      # ───────────────────────────────────────────────────────────────────
+      # 6) Eliminar la pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
+      # ───────────────────────────────────────────────────────────────────
+      - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
+        run: |
+          # Comprobamos el estado. Si no existe, status="NONE"
+          status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
+                    --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
+
+          if [ "$status" = "ROLLBACK_COMPLETE" ]; then
+            echo "🛠️  La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
+            aws cloudformation delete-stack --stack-name mi-stack-jira
+            echo "⏳  Esperando a que termine la eliminación de mi-stack-jira..."
+            aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
+            echo "✅  Pila mi-stack-jira eliminada."
+          else
+            echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
+          fi
+
+      # ───────────────────────────────────────────────────────────────────
+      # 7) Construir (y limpiar) el layer de Python (opcional más abajo)
+      # ───────────────────────────────────────────────────────────────────
       - name: Construir layer de Python (limpieza extrema)
         working-directory: my-layers
         run: |
           set -e
-          if [ -d python ]; then rm -rf python; fi
 
+          # 7.1) Borrar cualquier carpeta python/ previa
+          if [ -d python ]; then
+            rm -rf python
+          fi
+
+          # 7.2) Instalar solo las 3 dependencias en requirements-layer.txt
           python3 -m pip install --upgrade pip
           python3 -m pip install -r requirements-layer.txt -t python
 
+          # 7.3) Eliminar TODO lo que sobra de spaCy para que el layer quede <50 MB
           rm -rf python/spacy/lang \
                  python/spacy/vectors \
                  python/spacy/data \
@@ -58,21 +97,28 @@ jobs:
                  python/spacy-legacy* \
                  python/spacy-loggers*
 
+          # Quitar numpy (spaCy "blank" no lo necesita en Lambda)
           rm -rf python/numpy* \
                  python/lib/python*/site-packages/numpy*
 
+          # Quitar pandas (openpyxl funciona sin pandas)
           rm -rf python/pandas* \
                  python/lib/python*/site-packages/pandas*
 
+          # Quitar pydantic_core si no lo necesitas
           rm -rf python/pydantic_core*
 
-          find python -type d -name "__pycache__"   -exec rm -rf {} +
-          find python -type d -name "*.dist-info"   -exec rm -rf {} +
-          find python -type f -name "*.so"          -exec rm -rf {} +
+          # Borrar “__pycache__”, carpetas .dist-info y binarios *.so
+          find python -type d -name "__pycache__" -exec rm -rf {} +
+          find python -type d -name "*.dist-info" -exec rm -rf {} +
+          find python -type f -name "*.so" -exec rm -rf {} +
 
+          # Mostrar tamaño final (descomprimido) de python/
           du -sh python || true
 
-      # 6) SAM build / package / deploy
+      # ───────────────────────────────────────────────────────────────────
+      # 8) SAM build → package → deploy
+      # ───────────────────────────────────────────────────────────────────
       - name: Construir con SAM (función + layer)
         run: sam build
 
