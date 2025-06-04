@@ -58,38 +58,52 @@ jobs:
           fi
 
       # ───────────────────────────────────────────────────────────
-      # 3) Reconstruir el layer en el runner (usando spacy-core)
+      # 3) Reconstruir el layer en el runner (ahora con spaCy + pruning)
       # ───────────────────────────────────────────────────────────
       - name: Construir layer de Python (optimizado)
         working-directory: my-layers
         run: |
-          # 1) Eliminar cualquier carpeta python/ anterior
+          # 1) Eliminar la carpeta python/ previa (si existía)
           rm -rf python
           mkdir python
 
-          # 2) Instalar solo las dependencias estrictamente necesarias:
-          #    - jira (para conectarse a Jira)
-          #    - openpyxl (para generar Excel)
-          #    - spacy-core (versión ligera, sin modelos ni vectores pesados)
+          # 2) Instalar solo las dependencias mínimas INCLUIDO spaCy completo
           python3 -m pip install --upgrade pip
           python3 -m pip install \
             jira>=3.0.1 \
             openpyxl>=3.0.0 \
-            spacy-core>=3.5.0 \
+            spacy>=3.5.0 \
             -t python
 
-          # 3) Eliminar paquetes que no necesitamos en Lambda:
-          #    (aunque spacy-core no los trae, dejamos aquí línea de ejemplo
-          #     por si tuvieras que sacar alguna carpeta adicional)
-          find python -type d -name "__pycache__" -exec rm -rf {} +
-          find python -type d -name "*.dist-info" -exec rm -rf {} +
-          find python -type f -name "*.so" -exec rm -rf {} +
+          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros:
+          #    - quitamos idiomas, vectores, tests, caches, so’s, dist‐info, etc.
+          find python/spacy/lang          -maxdepth 1 -exec rm -rf {} +
+          find python/spacy/vectors       -maxdepth 1 -exec rm -rf {} +
+          find python/spacy/tests         -maxdepth 1 -exec rm -rf {} +
+          find python/spacy/data          -maxdepth 1 -exec rm -rf {} +
+          find python/spacy/_ml           -maxdepth 1 -exec rm -rf {} +
+          rm -rf python/thinc \
+                 python/blis \
+                 python/preshed \
+                 python/srsly \
+                 python/spacy-legacy* \
+                 python/spacy-loggers*
 
-          # 4) Verificar tamaño final del layer
+          # 4) Si spaCy instaló archivos .so (binarios C) en subdirectorios “lib/python*/site-packages”,
+          #    los eliminamos también:
+          find python -type f -name "*.so"  -exec rm -rf {} +
+          find python -type d -name "__pycache__"   -exec rm -rf {} +
+          find python -type d -name "*.dist-info"   -exec rm -rf {} +
+
+          # 5) (Opcional) si el runner instaló numpy/pandas con spaCy, los quitamos:
+          rm -rf python/numpy* python/lib/python*/site-packages/numpy*
+          rm -rf python/pandas* python/lib/python*/site-packages/pandas*
+
+          # 6) Mostrar tamaño final del layer para validación
           du -sh python
 
       # ───────────────────────────────────────────────────────────
-      # 4) sam build → sam package → sam deploy
+      # 4) Build + Package + Deploy con SAM
       # ───────────────────────────────────────────────────────────
       - name: Construir con SAM
         run: sam build
