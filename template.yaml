@@ -4,24 +4,29 @@ Transform: AWS::Serverless-2016-10-31
 Parameters:
   JiraDomainParam:
     Type: String
+    Description: "Dominio de Jira (solo el host, por ejemplo: midominio.atlassian.net)"
   JiraUserParam:
     Type: String
+    Description: "Usuario/Correo de Jira"
   JiraApiTokenParam:
     Type: String
+    Description: "API Token de Jira (guardado en Secrets y referenciado aquí)"
   OutputS3BucketParam:
     Type: String
+    Description: "Nombre del bucket S3 donde se guardará el Excel"
 
 Resources:
 
   # -----------------------------------------
   # 1) Definimos el layer “ValidarHUFunctionLayer”
+  #    - Usamos AWS::Serverless::LayerVersion para que admita ContentUri
   # -----------------------------------------
   ValidarHUFunctionLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ValidarHUFunctionLayer
       Description: "Dependencias Python para ValidarHU"
-      ContentUri: my-layers/python/      # <- apunta a la carpeta con tus paquetes pip instalados
+      ContentUri: my-layers/python/      # Carpeta local donde pip instaló los paquetes
       CompatibleRuntimes:
         - python3.10
 
@@ -32,13 +37,13 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
-      Handler: app.lambda_handler
       Runtime: python3.10
-      CodeUri: hello_world/               # <- apunta a tu carpeta donde está app.py
+      Handler: app.lambda_handler
+      CodeUri: hello_world/               # Carpeta que contiene app.py, requirements.txt, etc.
       MemorySize: 128
       Timeout: 60
       Layers:
-        - !Ref ValidarHUFunctionLayer      # <— asociamos el layer que definimos arriba
+        - !Ref ValidarHUFunctionLayer
       Environment:
         Variables:
           JIRA_DOMAIN: !Ref JiraDomainParam
@@ -46,17 +51,17 @@ Resources:
           JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
       Events:
-        ValidarHUApi:                      # <- Nombre lógico de tu evento HTTP
+        ValidarHUApi:
           Type: Api
           Properties:
-            Path: /reporte                 # <- La ruta que quieres exponer (ajústala aquí)
+            Path: /reporte                # Ruta pública de API Gateway
             Method: get
 
 Outputs:
   ValidarHUFunctionArn:
-    Description: "ARN de la función Lambda"
+    Description: "ARN de la función Lambda ValidarHUFunction"
     Value: !GetAtt ValidarHUFunction.Arn
 
   ValidarHUApiUrl:
-    Description: "API Gateway URL para invocar la Lambda"
+    Description: "URL de API Gateway para invocar la función (GET /reporte)"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/reporte"
