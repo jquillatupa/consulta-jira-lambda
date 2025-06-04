@@ -13,32 +13,32 @@ Parameters:
 
 Resources:
 
-  # ───────────────────────────────────────────────────────────
-  # 1) Declaramos el layer como recurso SAM: AWS::Serverless::LayerVersion
-  # ───────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────
+  # Definimos el layer como recurso SAM (AWS::Serverless::LayerVersion)
+  # ────────────────────────────────────────────────────
   ValidarHUFunctionLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ValidarHUFunctionLayer
-      Description: "Dependencias Python para ValidarHU (spaCy, jira, openpyxl, etc.)"
-      ContentUri: my-layers/python/       # <-- aquí va tu carpeta “python/” con las deps ya recortadas
+      Description: "Dependencias Python (spaCy recortado, jira, openpyxl…)"
+      ContentUri: my-layers/python/       # ¡aquí va la carpeta “python” reducida!
       CompatibleRuntimes:
         - python3.10
 
-  # ───────────────────────────────────────────────────────────
-  # 2) Definimos la función Lambda que referenciará solo al layer
-  # ───────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────
+  # Definimos la función, pero ya SIN spaCy/numpy/pandas en su propio CodeUri
+  # ────────────────────────────────────────────────────
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
       Runtime: python3.10
-      CodeUri: hello_world/               # <-- aquí solo tu código (sin deps pesadas)
+      CodeUri: hello_world/               # <-- en hello_world solo tu código + jira+openpyxl
       MemorySize: 128
       Timeout: 60
       Layers:
-        - !Ref ValidarHUFunctionLayer      # <-- el layer declarado arriba
+        - !Ref ValidarHUFunctionLayer      # <-- zonifica las dependencias “pesadas” en el layer
       Environment:
         Variables:
           JIRA_DOMAIN: !Ref JiraDomainParam

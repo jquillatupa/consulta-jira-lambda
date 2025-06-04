@@ -1,4 +1,4 @@
-name: build-and-deploy
+name: CI/CD Deploy
 
 on:
   push:
@@ -8,107 +8,98 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # ───────────────────────────────────────────────────────────
-      # 0) Checkout del código, instalación de Python y configuración de AWS
-      # ───────────────────────────────────────────────────────────
-      - name: Checkout code
+      # ------------------------------
+      # 0) Checkout del repositorio
+      # ------------------------------
+      - name: Chequear código
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      # ---------------------------------
+      # 1) Instalar Python 3.10 y SAM CLI
+      # ---------------------------------
+      - name: Instalar Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Configure AWS credentials
+      - name: Instalar AWS CLI y SAM CLI
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install awscli aws-sam-cli
+
+      # ---------------------------------
+      # 2) Configurar credenciales AWS
+      # ---------------------------------
+      - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region:            us-east-1
 
-      # ───────────────────────────────────────────────────────────
-      # 1) (Opcional) Eliminar Lambda “ValidarHUFunction” si existe
-      # ───────────────────────────────────────────────────────────
+      # -------------------------------------------------------
+      # 3) Eliminar Lambda y/o stack si quedaron en rollback
+      # -------------------------------------------------------
       - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
-            echo "La función ValidarHUFunction existe. Eliminando..."
             aws lambda delete-function --function-name ValidarHUFunction
-            echo "Función ValidarHUFunction eliminada."
-          else
-            echo "No existe la función ValidarHUFunction. Continuando..."
           fi
 
-      # ───────────────────────────────────────────────────────────
-      # 2) Eliminar stack mi-stack-jira si está en ROLLBACK_COMPLETE
-      # ───────────────────────────────────────────────────────────
       - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
                     --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
           if [ "$status" = "ROLLBACK_COMPLETE" ]; then
-            echo "La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
             aws cloudformation delete-stack --stack-name mi-stack-jira
-            echo "Esperando a que termine la eliminación de mi-stack-jira..."
             aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
-            echo "Pila mi-stack-jira eliminada."
-          else
-            echo "Estado de mi-stack-jira: $status. No requiere eliminación."
           fi
 
-      # ───────────────────────────────────────────────────────────
-      # 3) Reconstruir el layer en el runner (limpieza extrema)
-      # ───────────────────────────────────────────────────────────
+      # -------------------------------------------------------
+      # 4) Reconstruir layer de Python (limpieza extrema)
+      # -------------------------------------------------------
       - name: Construir layer de Python (optimizado)
         working-directory: my-layers
         run: |
-          # 1) Eliminar la carpeta python/ previa (si existía)
-          rm -rf python
+          set -e
+
+          # 4.1) Elimina cualquier carpeta 'python/' previa
+          rm -rf python/
           mkdir python
 
-          # 2) Instalar solo las dependencias “pesadas” 
-          #    (spaCy completo, openpyxl, jira, etc.) dentro de python/
+          # 4.2) Instala SOLO lo mínimo en el layer
           python3 -m pip install --upgrade pip
-          python3 -m pip install \
-            jira>=3.0.1 \
-            openpyxl>=3.0.0 \
-            spacy>=3.5.0 \
-            -t python
+          python3 -m pip install jira>=3.0.1 openpyxl>=3.0.0 spacy>=3.5.0 -t python
 
-          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros para mantener < 250 MB
-          rm -rf python/spacy/lang
-          rm -rf python/spacy/vectors
-          rm -rf python/spacy/tests
-          rm -rf python/spacy/data
-          rm -rf python/spacy/_ml
-          rm -rf python/thinc
-          rm -rf python/blis
-          rm -rf python/preshed
-          rm -rf python/srsly
-          rm -rf python/spacy-legacy*
-          rm -rf python/spacy-loggers*
+          # 4.3) “Recorta” spaCy borrando vectores, datos, tests, etc.
+          rm -rf python/spacy/lang \
+                 python/spacy/vectors \
+                 python/spacy/tests \
+                 python/spacy/data \
+                 python/spacy/_ml \
+                 python/thinc \
+                 python/blis \
+                 python/preshed \
+                 python/srsly \
+                 python/spacy-legacy* \
+                 python/spacy-loggers*
 
-          # 4) Borrar binarios C (.so) en cualquier subcarpeta
-          find python -type f -name "*.so"  -exec rm -f {} +
+          # 4.4) Quita numpy y pandas (no los necesitamos en la función)
+          rm -rf python/numpy* python/lib/python*/site-packages/numpy*
+          rm -rf python/pandas* python/lib/python*/site-packages/pandas*
 
-          # 5) Limpiar caches y dist-info
-          find python -type d -name "__pycache__"   -exec rm -rf {} +
-          find python -type d -name "*.dist-info"   -exec rm -rf {} +
+          # 4.5) Limpia caches, dist-info y binarios .so innecesarios
+          find python -type d -name "__pycache__" -exec rm -rf {} +
+          find python -type d -name "*.dist-info"  -exec rm -rf {} +
+          find python -type f -name "*.so"         -exec rm -rf {} +
 
-          # 6) Quitar numpy/pandas por si se instalaron como dependencia indirecta
-          rm -rf python/numpy*
-          rm -rf python/lib/python*/site-packages/numpy*
-          rm -rf python/pandas*
-          rm -rf python/lib/python*/site-packages/pandas*
-
-          # 7) Mostrar tamaño final del layer
+          # 4.6) Verificar tamaño final (debe quedar < ~150 MB)
           du -sh python
 
-      # ───────────────────────────────────────────────────────────
-      # 4) Build + Package + Deploy con SAM
-      # ───────────────────────────────────────────────────────────
+      # -------------------------------------------------------
+      # 5) Compilar, empaquetar y desplegar con SAM
+      # -------------------------------------------------------
       - name: Construir con SAM
         run: sam build
 
