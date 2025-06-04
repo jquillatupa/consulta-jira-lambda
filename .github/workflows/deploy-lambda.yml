@@ -1,3 +1,5 @@
+# .github/workflows/build-and-deploy.yaml
+
 name: build-and-deploy
 
 on:
@@ -7,8 +9,9 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      # 1) Checkout del código
+      # 1) Obtener el código
       - name: Chequear código
         uses: actions/checkout@v4
 
@@ -28,57 +31,58 @@ jobs:
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region:            us-east-1
 
-      # 5) (Opcional) Limpiar Lambda original si ya existiera
-      - name: Eliminar Lambda ValidarHUFunction si existe
-        run: |
-          if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
-            echo "🗑️  La función ValidarHUFunction ya existe. Eliminando..."
-            aws lambda delete-function --function-name ValidarHUFunction
-            echo "✅  Función ValidarHUFunction eliminada."
-          else
-            echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
-          fi
-
-      # 6) (Opcional) Si la pila “mi-stack-jira” está en ROLLBACK_COMPLETE, eliminarla
-      - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
-        run: |
-          status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
-                    --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-          if [ "$status" = "ROLLBACK_COMPLETE" ]; then
-            echo "🛠️  La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
-            aws cloudformation delete-stack --stack-name mi-stack-jira
-            echo "⏳  Esperando a que termine la eliminación de mi-stack-jira..."
-            aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
-            echo "✅  Pila mi-stack-jira eliminada."
-          else
-            echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
-          fi
-
-      # 7) Construir el layer de Python: instalar en my-layers/python todo lo de hello_world/requirements.txt
-      - name: Construir layer de Python
+      # 5) Construir (y limpiar) el layer dentro de my-layers/python/
+      - name: Construir layer de Python (limpieza extrema)
         working-directory: my-layers
         run: |
-          python -m pip install -r ../hello_world/requirements.txt -t ./python
-          # Nota: el comando anterior instalará pandas, numpy, jira, openpyxl, spacy, etc. dentro de my-layers/python/
-      # (no es necesario hacer cd .. porque los pasos posteriores de SAM usan la ruta 'ContentUri' directamente)
+          set -e
+          if [ -d python ]; then rm -rf python; fi
 
-      # 8) Construir con SAM (incluye la función y el layer recién creado)
-      - name: Construir con SAM (incluye layer y dependencias)
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements-layer.txt -t python
+
+          rm -rf python/spacy/lang \
+                 python/spacy/vectors \
+                 python/spacy/data \
+                 python/spacy/tests \
+                 python/spacy/_ml \
+                 python/spacy/samples \
+                 python/thinc \
+                 python/blis \
+                 python/preshed \
+                 python/srsly \
+                 python/spacy-legacy* \
+                 python/spacy-loggers*
+
+          rm -rf python/numpy* \
+                 python/lib/python*/site-packages/numpy*
+
+          rm -rf python/pandas* \
+                 python/lib/python*/site-packages/pandas*
+
+          rm -rf python/pydantic_core*
+
+          find python -type d -name "__pycache__"   -exec rm -rf {} +
+          find python -type d -name "*.dist-info"   -exec rm -rf {} +
+          find python -type f -name "*.so"          -exec rm -rf {} +
+
+          du -sh python || true
+
+      # 6) SAM build / package / deploy
+      - name: Construir con SAM (función + layer)
         run: sam build
 
-      # 9) Empaquetar artefactos SAM (función + layer)
-      - name: Empaquetar artefactos SAM (función + layer)
+      - name: Empaquetar artefactos SAM
         run: |
           sam package \
             --template-file .aws-sam/build/template.yaml \
             --s3-bucket ${{ secrets.SAM_DEPLOY_BUCKET }} \
             --output-template-file packaged.yaml
 
-      # 10) Desplegar con SAM
       - name: Desplegar con SAM
         run: |
           sam deploy \
