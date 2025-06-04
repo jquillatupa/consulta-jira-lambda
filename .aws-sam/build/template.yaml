@@ -3,20 +3,28 @@ Transform: AWS::Serverless-2016-10-31
 Parameters:
   JiraDomainParam:
     Type: String
+    Description: 'Dominio de Jira (por ejemplo: midominio.atlassian.net)'
   JiraUserParam:
     Type: String
+    Description: "Usuario de Jira (correo electr\xF3nico)"
   JiraApiTokenParam:
     Type: String
+    Description: Token de API de Jira (Atlassian API Token)
   OutputS3BucketParam:
     Type: String
+    Description: "Nombre del bucket S3 donde se subir\xE1 el reporte"
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: python3.10
+    MemorySize: 128
 Resources:
   ValidarHUFunctionLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: validarhu-layer-minimo
-      Description: "Layer m\xEDnimo con spaCy + jira + openpyxl"
-      Content:
-        ZipFile: my-layers/lambda-layer-minimo.zip
+      LayerName: ValidarHUFunctionLayer
+      Description: Dependencias Python para ValidarHU (jira, openpyxl, spacy, etc.)
+      ContentUri: ..\..\my-layers
       CompatibleRuntimes:
       - python3.10
   ValidarHUFunction:
@@ -26,8 +34,6 @@ Resources:
       Handler: app.lambda_handler
       Runtime: python3.10
       CodeUri: ValidarHUFunction
-      MemorySize: 128
-      Timeout: 60
       Layers:
       - Ref: ValidarHUFunctionLayer
       Environment:
