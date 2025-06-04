@@ -68,7 +68,8 @@ jobs:
           rm -rf python
           mkdir python
 
-          # 2) Instalar solo las dependencias mínimas INCLUIDO spaCy completo
+          # 2) Instalar solo las dependencias “pesadas” 
+          #    (spaCy completo, openpyxl, jira, etc.) dentro de python/
           python3 -m pip install --upgrade pip
           python3 -m pip install \
             jira>=3.0.1 \
@@ -76,7 +77,7 @@ jobs:
             spacy>=3.5.0 \
             -t python
 
-          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros
+          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros para mantener < 250 MB
           rm -rf python/spacy/lang
           rm -rf python/spacy/vectors
           rm -rf python/spacy/tests
@@ -96,7 +97,7 @@ jobs:
           find python -type d -name "__pycache__"   -exec rm -rf {} +
           find python -type d -name "*.dist-info"   -exec rm -rf {} +
 
-          # 6) Quitar numpy/pandas por si aparecen
+          # 6) Quitar numpy/pandas por si se instalaron como dependencia indirecta
           rm -rf python/numpy*
           rm -rf python/lib/python*/site-packages/numpy*
           rm -rf python/pandas*

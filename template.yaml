@@ -4,65 +4,58 @@ Transform: AWS::Serverless-2016-10-31
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira (por ejemplo: mycompany.atlassian.net)"
   JiraUserParam:
     Type: String
-    Description: "Usuario de Jira (email)"
   JiraApiTokenParam:
     Type: String
-    Description: "Token/API de Jira"
   OutputS3BucketParam:
     Type: String
-    Description: "Nombre del bucket S3 donde se subirá el reporte Excel"
-
-Globals:
-  Function:
-    Runtime: python3.10
-    Timeout: 60
-    MemorySize: 128
 
 Resources:
 
-  # -----------------------------------------------------------------
-  # 1) DEFINICIÓN DEL LAYER: aquí van SOLO las dependencias pip-minimas
-  # -----------------------------------------------------------------
+  # ────────────────────────────────────────────────────────
+  # 1) Layer: ValidarHUFunctionLayer
+  # ────────────────────────────────────────────────────────
   ValidarHUFunctionLayer:
-    Type: AWS::Serverless::LayerVersion
+    Type: AWS::Lambda::LayerVersion
     Properties:
       LayerName: ValidarHUFunctionLayer
-      Description: "Layer con dependencias Python (jira, spacy, openpyxl)"
-      ContentUri: my-layers/           # <-- apunta a la carpeta que contiene "python/"
+      Description: "Dependencias Python para ValidarHU (spaCy, jira, openpyxl, etc.)"
+      ContentUri: my-layers/python/       # <-- aquí va SOLO la carpeta python/ con las deps podadas
       CompatibleRuntimes:
         - python3.10
 
-  # -----------------------------------------------------------------
-  # 2) DEFINICIÓN DE LA FUNCIÓN LAMBDA: apuntando solo a hello_world/
-  # -----------------------------------------------------------------
+  # ────────────────────────────────────────────────────────
+  # 2) Función Lambda: ValidarHUFunction
+  # ────────────────────────────────────────────────────────
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      CodeUri: hello_world/            # <-- SOLO tu código, sin deps grandes
+      Runtime: python3.10
+      CodeUri: hello_world/               # <-- aquí no debe incluir spaCy ni deps pesadas
+      MemorySize: 128
+      Timeout: 60
       Layers:
-        - !Ref ValidarHUFunctionLayer   # <-- inyecta el layer con las libs
+        - !Ref ValidarHUFunctionLayer      # <-- se referencia al layer externo
       Environment:
         Variables:
-          JIRA_DOMAIN:      !Ref JiraDomainParam
-          JIRA_USER:        !Ref JiraUserParam
-          JIRA_API_TOKEN:   !Ref JiraApiTokenParam
+          JIRA_DOMAIN: !Ref JiraDomainParam
+          JIRA_USER:   !Ref JiraUserParam
+          JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
       Events:
-        Api:
+        HelloWorldApi:
           Type: Api
           Properties:
             Path: /hello
             Method: get
 
 Outputs:
-  ApiUrl:
-    Description: "URL de API Gateway para invocar la Lambda"
+  HelloWorldApi:
+    Description: "API Gateway URL para llamar a la Lambda"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  ValidarHUFunctionArn:
-    Description: "ARN de la función ValidarHUFunction"
+  HelloWorldFunctionArn:
+    Description: "ARN de la función Lambda"
     Value: !GetAtt ValidarHUFunction.Arn
