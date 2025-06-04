@@ -8,9 +8,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       # ───────────────────────────────────────────────────────────
-      # 0) Checkout, Setup Python y Configurar credenciales AWS
+      # 0) Checkout del código, instalación de Python y configuración de AWS
       # ───────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
@@ -58,7 +59,7 @@ jobs:
           fi
 
       # ───────────────────────────────────────────────────────────
-      # 3) Reconstruir el layer en el runner (ahora con spaCy + pruning)
+      # 3) Reconstruir el layer en el runner (limpieza extrema)
       # ───────────────────────────────────────────────────────────
       - name: Construir layer de Python (optimizado)
         working-directory: my-layers
@@ -75,31 +76,33 @@ jobs:
             spacy>=3.5.0 \
             -t python
 
-          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros:
-          #    - quitamos idiomas, vectores, tests, caches, so’s, dist‐info, etc.
-          find python/spacy/lang          -maxdepth 1 -exec rm -rf {} +
-          find python/spacy/vectors       -maxdepth 1 -exec rm -rf {} +
-          find python/spacy/tests         -maxdepth 1 -exec rm -rf {} +
-          find python/spacy/data          -maxdepth 1 -exec rm -rf {} +
-          find python/spacy/_ml           -maxdepth 1 -exec rm -rf {} +
-          rm -rf python/thinc \
-                 python/blis \
-                 python/preshed \
-                 python/srsly \
-                 python/spacy-legacy* \
-                 python/spacy-loggers*
+          # 3) Podar todos los archivos pesados/metadatos de spaCy y otros
+          rm -rf python/spacy/lang
+          rm -rf python/spacy/vectors
+          rm -rf python/spacy/tests
+          rm -rf python/spacy/data
+          rm -rf python/spacy/_ml
+          rm -rf python/thinc
+          rm -rf python/blis
+          rm -rf python/preshed
+          rm -rf python/srsly
+          rm -rf python/spacy-legacy*
+          rm -rf python/spacy-loggers*
 
-          # 4) Si spaCy instaló archivos .so (binarios C) en subdirectorios “lib/python*/site-packages”,
-          #    los eliminamos también:
-          find python -type f -name "*.so"  -exec rm -rf {} +
+          # 4) Borrar binarios C (.so) en cualquier subcarpeta
+          find python -type f -name "*.so"  -exec rm -f {} +
+
+          # 5) Limpiar caches y dist-info
           find python -type d -name "__pycache__"   -exec rm -rf {} +
           find python -type d -name "*.dist-info"   -exec rm -rf {} +
 
-          # 5) (Opcional) si el runner instaló numpy/pandas con spaCy, los quitamos:
-          rm -rf python/numpy* python/lib/python*/site-packages/numpy*
-          rm -rf python/pandas* python/lib/python*/site-packages/pandas*
+          # 6) Quitar numpy/pandas por si aparecen
+          rm -rf python/numpy*
+          rm -rf python/lib/python*/site-packages/numpy*
+          rm -rf python/pandas*
+          rm -rf python/lib/python*/site-packages/pandas*
 
-          # 6) Mostrar tamaño final del layer para validación
+          # 7) Mostrar tamaño final del layer
           du -sh python
 
       # ───────────────────────────────────────────────────────────
