@@ -1,95 +1,82 @@
 name: build-and-deploy
 
-# Se dispara únicamente cuando haces push al branch main
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Obtener el código
-      - name: Chequear código
+      # ───────────────────────────────────────────────────────────
+      # 0) Checkout, Setup Python y Configurar credenciales AWS
+      # ───────────────────────────────────────────────────────────
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2) Instalar Python 3.10
-      - name: Instalar Python 3.10
+      - name: Setup Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3) Instalar AWS SAM CLI
-      - name: Instalar AWS SAM CLI
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install aws-sam-cli
-
-      # 4) Configurar credenciales AWS
-      - name: Configurar credenciales AWS
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            us-east-1
+          aws-region: us-east-1
 
-      # ───────────────────────────────────────────────────────────────────
-      # 5) Eliminar Lambda “ValidarHUFunction” si existe (opcional)
-      # ───────────────────────────────────────────────────────────────────
+      # ───────────────────────────────────────────────────────────
+      # 1) (Opcional) Eliminar Lambda “ValidarHUFunction” si existe
+      # ───────────────────────────────────────────────────────────
       - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
-            echo "🗑️  La función ValidarHUFunction ya existe. Eliminando..."
+            echo "La función ValidarHUFunction existe. Eliminando..."
             aws lambda delete-function --function-name ValidarHUFunction
-            echo "✅  Función ValidarHUFunction eliminada."
+            echo "Función ValidarHUFunction eliminada."
           else
-            echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
+            echo "No existe la función ValidarHUFunction. Continuando..."
           fi
 
-      # ───────────────────────────────────────────────────────────────────
-      # 6) Eliminar la pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
-      # ───────────────────────────────────────────────────────────────────
+      # ───────────────────────────────────────────────────────────
+      # 2) Eliminar stack mi-stack-jira si está en ROLLBACK_COMPLETE
+      # ───────────────────────────────────────────────────────────
       - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
-          # Comprobamos el estado. Si no existe, status="NONE"
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
                     --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-
           if [ "$status" = "ROLLBACK_COMPLETE" ]; then
-            echo "🛠️  La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
+            echo "La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
             aws cloudformation delete-stack --stack-name mi-stack-jira
-            echo "⏳  Esperando a que termine la eliminación de mi-stack-jira..."
+            echo "Esperando a que termine la eliminación de mi-stack-jira..."
             aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
-            echo "✅  Pila mi-stack-jira eliminada."
+            echo "Pila mi-stack-jira eliminada."
           else
-            echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
+            echo "Estado de mi-stack-jira: $status. No requiere eliminación."
           fi
 
-      # ───────────────────────────────────────────────────────────────────
-      # 7) Construir (y limpiar) el layer de Python (opcional más abajo)
-      # ───────────────────────────────────────────────────────────────────
+      # ───────────────────────────────────────────────────────────
+      # 3) Reconstruir el layer en el runner (limpieza extrema)
+      # ───────────────────────────────────────────────────────────
       - name: Construir layer de Python (limpieza extrema)
         working-directory: my-layers
         run: |
-          set -e
+          # 1) Eliminar carpeta python/ anterior
+          rm -rf python
+          mkdir python
 
-          # 7.1) Borrar cualquier carpeta python/ previa
-          if [ -d python ]; then
-            rm -rf python
-          fi
-
-          # 7.2) Instalar solo las 3 dependencias en requirements-layer.txt
+          # 2) Instalar dependencias mínimas en python/
           python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements-layer.txt -t python
+          python3 -m pip install jira>=3.0.1 openpyxl>=3.0.0 spacy>=3.5.0 -t python
 
-          # 7.3) Eliminar TODO lo que sobra de spaCy para que el layer quede <50 MB
+          # 3) Limpiar archivos pesados de spaCy
           rm -rf python/spacy/lang \
                  python/spacy/vectors \
-                 python/spacy/data \
                  python/spacy/tests \
+                 python/spacy/data \
                  python/spacy/_ml \
-                 python/spacy/samples \
                  python/thinc \
                  python/blis \
                  python/preshed \
@@ -97,29 +84,22 @@ jobs:
                  python/spacy-legacy* \
                  python/spacy-loggers*
 
-          # Quitar numpy (spaCy "blank" no lo necesita en Lambda)
-          rm -rf python/numpy* \
-                 python/lib/python*/site-packages/numpy*
+          # 4) Quitar numpy y pandas (spaCy “blank” no los necesita en Lambda)
+          rm -rf python/numpy* python/lib/python*/site-packages/numpy*
+          rm -rf python/pandas* python/lib/python*/site-packages/pandas*
 
-          # Quitar pandas (openpyxl funciona sin pandas)
-          rm -rf python/pandas* \
-                 python/lib/python*/site-packages/pandas*
-
-          # Quitar pydantic_core si no lo necesitas
-          rm -rf python/pydantic_core*
-
-          # Borrar “__pycache__”, carpetas .dist-info y binarios *.so
+          # 5) Limpiar caches, dist-info y binarios .so
           find python -type d -name "__pycache__" -exec rm -rf {} +
           find python -type d -name "*.dist-info" -exec rm -rf {} +
           find python -type f -name "*.so" -exec rm -rf {} +
 
-          # Mostrar tamaño final (descomprimido) de python/
-          du -sh python || true
+          # 6) Mostrar tamaño final para verificación
+          du -sh python
 
-      # ───────────────────────────────────────────────────────────────────
-      # 8) SAM build → package → deploy
-      # ───────────────────────────────────────────────────────────────────
-      - name: Construir con SAM (función + layer)
+      # ───────────────────────────────────────────────────────────
+      # 4) sam build → sam package → sam deploy
+      # ───────────────────────────────────────────────────────────
+      - name: Construir con SAM
         run: sam build
 
       - name: Empaquetar artefactos SAM
@@ -142,3 +122,4 @@ jobs:
               JiraUserParam="${{ secrets.JIRA_USER }}" \
               JiraApiTokenParam="${{ secrets.JIRA_API_TOKEN }}" \
               OutputS3BucketParam="${{ secrets.OUTPUT_S3_BUCKET }}"
+

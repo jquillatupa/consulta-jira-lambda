@@ -4,69 +4,65 @@ Transform: AWS::Serverless-2016-10-31
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira (por ejemplo: midominio.atlassian.net)"
+    Description: "Dominio de Jira (por ejemplo: mycompany.atlassian.net)"
   JiraUserParam:
     Type: String
-    Description: "Usuario de Jira (correo electrónico)"
+    Description: "Usuario de Jira (email)"
   JiraApiTokenParam:
     Type: String
-    Description: "Token de API de Jira (Atlassian API Token)"
+    Description: "Token/API de Jira"
   OutputS3BucketParam:
     Type: String
-    Description: "Nombre del bucket S3 donde se subirá el reporte"
+    Description: "Nombre del bucket S3 donde se subirá el reporte Excel"
 
 Globals:
   Function:
-    Timeout: 60         # 60 segundos de timeout para la función
-    Runtime: python3.10 # Runtime Python 3.10 para ambas la función y el layer
-    MemorySize: 128     # 128 MB de RAM asignados por defecto
+    Runtime: python3.10
+    Timeout: 60
+    MemorySize: 128
 
 Resources:
 
-  #########################################################
-  # 1) DEFINICIÓN DEL LAYER “ValidarHUFunctionLayer”      #
-  #########################################################
-  # Usamos AWS::Serverless::LayerVersion para que SAM se  #
-  # encargue de empaquetar la carpeta my-layers/python/   #
-  #########################################################
+  # -----------------------------------------------------------------
+  # 1) DEFINICIÓN DEL LAYER: aquí van SOLO las dependencias pip-minimas
+  # -----------------------------------------------------------------
   ValidarHUFunctionLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ValidarHUFunctionLayer
-      Description: "Dependencias Python para ValidarHU (jira, openpyxl, spacy, etc.)"
-      ContentUri: my-layers/          # SAM buscará la subcarpeta /python/ automáticamente
+      Description: "Layer con dependencias Python (jira, spacy, openpyxl)"
+      ContentUri: my-layers/           # <-- apunta a la carpeta que contiene "python/"
       CompatibleRuntimes:
         - python3.10
 
-  #########################################################
-  # 2) DEFINICIÓN DE LA FUNCIÓN Lambda “ValidarHUFunction”#
-  #########################################################
+  # -----------------------------------------------------------------
+  # 2) DEFINICIÓN DE LA FUNCIÓN LAMBDA: apuntando solo a hello_world/
+  # -----------------------------------------------------------------
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      Runtime: python3.10
-      CodeUri: hello_world/           # Carpeta donde están app.py y requirements.txt
+      CodeUri: hello_world/            # <-- SOLO tu código, sin deps grandes
       Layers:
-        - !Ref ValidarHUFunctionLayer # Asociamos el layer recién creado
+        - !Ref ValidarHUFunctionLayer   # <-- inyecta el layer con las libs
       Environment:
         Variables:
-          JIRA_DOMAIN: !Ref JiraDomainParam
-          JIRA_USER: !Ref JiraUserParam
-          JIRA_API_TOKEN: !Ref JiraApiTokenParam
+          JIRA_DOMAIN:      !Ref JiraDomainParam
+          JIRA_USER:        !Ref JiraUserParam
+          JIRA_API_TOKEN:   !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
       Events:
-        HelloWorldApi:
+        Api:
           Type: Api
           Properties:
             Path: /hello
             Method: get
 
 Outputs:
-  HelloWorldApi:
-    Description: "API Gateway URL para llamar a la Lambda"
+  ApiUrl:
+    Description: "URL de API Gateway para invocar la Lambda"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunctionArn:
-    Description: "ARN de la función Lambda"
+  ValidarHUFunctionArn:
+    Description: "ARN de la función ValidarHUFunction"
     Value: !GetAtt ValidarHUFunction.Arn
