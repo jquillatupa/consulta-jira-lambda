@@ -19,11 +19,9 @@ Resources:
   ValidarHUFunctionLayer:
     Type: AWS::Lambda::LayerVersion
     Properties:
-      LayerName: validarhu-layer-minimo
-      Description: "Layer mínimo con spaCy + jira + openpyxl"
-      Content:
-        # Aquí referenciamos el ZIP que acabamos de crear
-        ZipFile: my-layers/lambda-layer-minimo.zip
+      LayerName: ValidarHUFunctionLayer
+      Description: "Dependencias Python para ValidarHU"
+      ContentUri: my-layers/python/      # <- apunta a la carpeta con tus paquetes pip instalados
       CompatibleRuntimes:
         - python3.10
 
@@ -36,11 +34,11 @@ Resources:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
       Runtime: python3.10
-      CodeUri: hello_world/
+      CodeUri: hello_world/               # <- apunta a tu carpeta donde está app.py
       MemorySize: 128
       Timeout: 60
       Layers:
-        - !Ref ValidarHUFunctionLayer
+        - !Ref ValidarHUFunctionLayer      # <— asociamos el layer que definimos arriba
       Environment:
         Variables:
           JIRA_DOMAIN: !Ref JiraDomainParam
@@ -48,16 +46,17 @@ Resources:
           JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
       Events:
-        HelloWorldApi:
+        ValidarHUApi:                      # <- Nombre lógico de tu evento HTTP
           Type: Api
           Properties:
-            Path: /hello
+            Path: /reporte                 # <- La ruta que quieres exponer (ajústala aquí)
             Method: get
 
 Outputs:
-  HelloWorldApi:
-    Description: "API Gateway URL para llamar a la Lambda"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunctionArn:
+  ValidarHUFunctionArn:
     Description: "ARN de la función Lambda"
     Value: !GetAtt ValidarHUFunction.Arn
+
+  ValidarHUApiUrl:
+    Description: "API Gateway URL para invocar la Lambda"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/reporte"

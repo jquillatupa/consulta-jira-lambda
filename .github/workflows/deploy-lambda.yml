@@ -8,19 +8,23 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      # 1) Checkout del código
       - name: Chequear código
         uses: actions/checkout@v4
 
+      # 2) Instalar Python 3.10
       - name: Instalar Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # 3) Instalar AWS SAM CLI
       - name: Instalar AWS SAM CLI
         run: |
           python3 -m pip install --upgrade pip
           pip install aws-sam-cli
 
+      # 4) Configurar credenciales AWS
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -28,9 +32,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 1) Eliminar Lambda “ValidarHUFunction” si existe
-      # ───────────────────────────────────────────────────────────────────────────
+      # 5) (Opcional) Limpiar Lambda original si ya existiera
       - name: Eliminar Lambda ValidarHUFunction si existe
         run: |
           if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
@@ -41,9 +43,7 @@ jobs:
             echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
           fi
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 2) Eliminar pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
-      # ───────────────────────────────────────────────────────────────────────────
+      # 6) (Opcional) Si la pila “mi-stack-jira” está en ROLLBACK_COMPLETE, eliminarla
       - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
         run: |
           status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
@@ -58,22 +58,19 @@ jobs:
             echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
           fi
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 3) Construir el layer de Python dinámicamente (no versionado en Git)
-      # ───────────────────────────────────────────────────────────────────────────
+      # 7) Construir el layer de Python: instalar en my-layers/python todo lo de hello_world/requirements.txt
       - name: Construir layer de Python
         working-directory: my-layers
         run: |
-          # Instala las dependencias definidas en hello_world/requirements.txt
           python -m pip install -r ../hello_world/requirements.txt -t ./python
-          cd ..
+          # Nota: el comando anterior instalará pandas, numpy, jira, openpyxl, spacy, etc. dentro de my-layers/python/
+      # (no es necesario hacer cd .. porque los pasos posteriores de SAM usan la ruta 'ContentUri' directamente)
 
-      # ───────────────────────────────────────────────────────────────────────────
-      # 4) Build, Package y Deploy con SAM
-      # ───────────────────────────────────────────────────────────────────────────
+      # 8) Construir con SAM (incluye la función y el layer recién creado)
       - name: Construir con SAM (incluye layer y dependencias)
         run: sam build
 
+      # 9) Empaquetar artefactos SAM (función + layer)
       - name: Empaquetar artefactos SAM (función + layer)
         run: |
           sam package \
@@ -81,6 +78,7 @@ jobs:
             --s3-bucket ${{ secrets.SAM_DEPLOY_BUCKET }} \
             --output-template-file packaged.yaml
 
+      # 10) Desplegar con SAM
       - name: Desplegar con SAM
         run: |
           sam deploy \
