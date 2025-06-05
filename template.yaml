@@ -1,63 +1,62 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
+Description: >
+  Mi plantilla SAM con función y layer.
 
-Parameters:
-  JiraDomainParam:
-    Type: String
-  JiraUserParam:
-    Type: String
-  JiraApiTokenParam:
-    Type: String
-  OutputS3BucketParam:
-    Type: String
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 60
+    MemorySize: 128
 
 Resources:
 
-  # -----------------------------------------
-  # 1) Definimos el layer “ValidarHUFunctionLayer”
-  # -----------------------------------------
+  ## 1) LayerVersion para librerías comunes o módulos compartidos
   ValidarHUFunctionLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: validarhu-layer-minimo
-      Description: "Layer mínimo con spaCy + jira + openpyxl"
-      Content:
-        # Aquí referenciamos el ZIP que acabamos de crear
-        ZipFile: my-layers/lambda-layer-minimo.zip
+      LayerName: ValidarHUFunctionLayer
+      Description: "Módulos Python compartidos para ValidarHUFunction"
+      ContentUri: layer/            # SAM tomará todo el contenido de esa carpeta y lo zippea
       CompatibleRuntimes:
-        - python3.10
+        - python3.9
+      LicenseInfo: "MIT"
 
-  # -----------------------------------------
-  # 2) Definimos la función Lambda “ValidarHUFunction”
-  # -----------------------------------------
+  ## 2) La función Lambda que usa ese layer
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      Runtime: python3.10
-      CodeUri: hello_world/
-      MemorySize: 128
-      Timeout: 60
+      CodeUri: hello_world/         # Carpeta donde está tu app.py y demás requisitos
       Layers:
         - !Ref ValidarHUFunctionLayer
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OutputS3Bucket
       Environment:
         Variables:
-          JIRA_DOMAIN: !Ref JiraDomainParam
-          JIRA_USER: !Ref JiraUserParam
-          JIRA_API_TOKEN: !Ref JiraApiTokenParam
-          OUTPUT_S3_BUCKET: !Ref OutputS3BucketParam
+          JIRA_DOMAIN:     !Ref JiraDomainParam
+          JIRA_USER:       !Ref JiraUserParam
+          JIRA_API_TOKEN:  !Ref JiraApiTokenParam
+          OUTPUT_S3_BUCKET: !Ref OutputS3Bucket
       Events:
-        HelloWorldApi:
+        ApiEvent:
           Type: Api
           Properties:
-            Path: /hello
+            Path: /validar
             Method: get
 
-Outputs:
-  HelloWorldApi:
-    Description: "API Gateway URL para llamar a la Lambda"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunctionArn:
-    Description: "ARN de la función Lambda"
-    Value: !GetAtt ValidarHUFunction.Arn
+Parameters:
+  JiraDomainParam:
+    Type: String
+    Description: "Dominio Jira (p.ej. miempresa.atlassian.net)"
+  JiraUserParam:
+    Type: String
+    Description: "Usuario Jira (correo o user)"
+  JiraApiTokenParam:
+    Type: String
+    Description: "API token de Jira"
+  OutputS3Bucket:
+    Type: String
+    Description: "Nombre del bucket S3 donde subir los reportes"
