@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Mi plantilla SAM con función y layer.
@@ -10,25 +10,24 @@ Globals:
     MemorySize: 128
 
 Resources:
-
   ## 1) LayerVersion para librerías comunes o módulos compartidos
   ValidarHUFunctionLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ValidarHUFunctionLayer
       Description: "Módulos Python compartidos para ValidarHUFunction"
-      ContentUri: layer/            # SAM tomará todo el contenido de esa carpeta y lo zippea
+      ContentUri: layer/ # SAM tomará todo el contenido de esa carpeta y lo zippea
       CompatibleRuntimes:
         - python3.9
       LicenseInfo: "MIT"
 
-  ## 2) La función Lambda que usa ese layer
+  ## 2) La función Lambda que usa ese layers
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      CodeUri: hello_world/         # Carpeta donde está tu app.py y demás requisitos
+      CodeUri: hello_world/ # Carpeta donde está tu app.py y demás requisitos
       Layers:
         - !Ref ValidarHUFunctionLayer
       Policies:
@@ -36,9 +35,9 @@ Resources:
             BucketName: !Ref OutputS3Bucket
       Environment:
         Variables:
-          JIRA_DOMAIN:     !Ref JiraDomainParam
-          JIRA_USER:       !Ref JiraUserParam
-          JIRA_API_TOKEN:  !Ref JiraApiTokenParam
+          JIRA_DOMAIN: !Ref JiraDomainParam
+          JIRA_USER: !Ref JiraUserParam
+          JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3Bucket
       Events:
         ApiEvent:
