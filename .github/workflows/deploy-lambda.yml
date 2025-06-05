@@ -1,80 +1,82 @@
-name: build-and-deploy
+# .github/workflows/deploy-sam.yml
+
+name: Build and Deploy SAM Application
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build-and-deploy:
+    name: 🛠️ Build & Deploy with AWS SAM
     runs-on: ubuntu-latest
+
+    env:
+      # Ajusta estos valores o define como secretos en tu repositorio:
+      AWS_REGION: us-east-1
+      STACK_NAME: mi-stack-jira
+      JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
+      JIRA_USER: ${{ secrets.JIRA_USER }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      OUTPUT_S3_BUCKET: reportes-jira-mi-proyecto-20
+
     steps:
-      - name: Chequear código
+      # 1) Checkout del código
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Instalar Python 3.10
+      # 2) Instalar Python 3.9 (porque en ubuntu-latest no está por defecto)
+      - name: 🔧 Setup Python 3.9
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.9"
 
-      - name: Instalar AWS SAM CLI
+      # 3) Verificar versión de Python instalada (opcional, para debugging)
+      - name: 🔍 Check Python version
         run: |
-          python3 -m pip install --upgrade pip
-          pip install aws-sam-cli
+          python --version
+          python3 --version
+          which python
+          which python3
 
-      - name: Configurar credenciales AWS
+      # 4) Instalar AWS CLI y AWS SAM CLI
+      - name: 🔧 Install AWS CLI & AWS SAM CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install awscli aws-sam-cli
+
+      # 5) Configurar credenciales AWS (usa secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+      - name: 🔑 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 1) EEliminar Lambda “ValidarHUFunction” si existe
-      - name: Eliminar Lambda ValidarHUFunction si existe
+      # 6) Construir la aplicación SAM (incluye función y layer)
+      - name: 🏗️ SAM Build
         run: |
-          if aws lambda get-function --function-name ValidarHUFunction 2>/dev/null; then
-            echo "🗑️  La función ValidarHUFunction ya existe. Eliminando..."
-            aws lambda delete-function --function-name ValidarHUFunction
-            echo "✅  Función ValidarHUFunction eliminada."
-          else
-            echo "ℹ️  No existe la función ValidarHUFunction. Continúo..."
-          fi
+          sam build
 
-      # 2) Eliminar pila “mi-stack-jira” si está en ROLLBACK_COMPLETE
-      - name: Eliminar pila mi-stack-jira si está en ROLLBACK_COMPLETE
-        run: |
-          status=$(aws cloudformation describe-stacks --stack-name mi-stack-jira \
-                    --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-          if [ "$status" = "ROLLBACK_COMPLETE" ]; then
-            echo "🛠️  La pila mi-stack-jira está en ROLLBACK_COMPLETE. Eliminando..."
-            aws cloudformation delete-stack --stack-name mi-stack-jira
-            echo "⏳  Esperando a que termine la eliminación de mi-stack-jira..."
-            aws cloudformation wait stack-delete-complete --stack-name mi-stack-jira
-            echo "✅  Pila mi-stack-jira eliminada."
-          else
-            echo "ℹ️  Estado de mi-stack-jira: $status. No es ROLLBACK_COMPLETE. Continúo..."
-          fi
-
-      # 3) Build, Package y Deploy con SAM
-      - name: Construir con SAM (incluye layer y dependencias)
-        run: sam build
-
-      - name: Empaquetar artefactos SAM (función + layer)
+      # 7) Empaquetar artefactos con SAM (sube código a S3 temporalmente)
+      - name: 📦 SAM Package
         run: |
           sam package \
-            --template-file .aws-sam/build/template.yaml \
-            --s3-bucket ${{ secrets.SAM_DEPLOY_BUCKET }} \
-            --output-template-file packaged.yaml
+            --output-template-file packaged.yaml \
+            --s3-bucket $OUTPUT_S3_BUCKET
 
-      - name: Desplegar con SAM
+      # 8) Desplegar el stack a CloudFormation
+      - name: 🚀 SAM Deploy
         run: |
           sam deploy \
             --template-file packaged.yaml \
-            --stack-name mi-stack-jira \
-            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
+            --stack-name $STACK_NAME \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              JiraDomainParam="${{ secrets.JIRA_DOMAIN }}" \
-              JiraUserParam="${{ secrets.JIRA_USER }}" \
-              JiraApiTokenParam="${{ secrets.JIRA_API_TOKEN }}" \
-              OutputS3BucketParam="${{ secrets.OUTPUT_S3_BUCKET }}"
+              JiraDomainParam=$JIRA_DOMAIN \
+              JiraUserParam=$JIRA_USER \
+              JiraApiTokenParam=$JIRA_API_TOKEN \
+              OutputS3Bucket=$OUTPUT_S3_BUCKET \
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset
