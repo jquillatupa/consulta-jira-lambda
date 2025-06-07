@@ -1,22 +1,25 @@
-# hello_world/requirements.txt
-# AWS
-boto3>=1.26.0
+# AWS SDK
+boto3==1.26.163
 
 # Jira
-jira>=3.0.1
+jira==3.8.0
 
-# HTTP
-requests>=2.28.0
-
-# DataFrames y sus dependencias
+# DataFrames y cálculos
 pandas==1.5.3
 numpy==1.23.5
-python-dateutil>=2.8.2
-pytz>=2023.3
 
 # Excel
-openpyxl>=3.0.0
-XlsxWriter>=3.0.0
+openpyxl==3.1.5
+XlsxWriter==3.1.5
 
-# Procesamiento de lenguaje natural
-spacy>=3.5.0
+# Fechas / zonas horarias
+python-dateutil==2.8.2
+pytz==2023.3
+
+# HTTP (JIRA usa requests por debajo)
+requests==2.32.3
+
+# Procesamiento de lenguaje
+spacy==3.5.0
+# Modelo de español para spaCy
+es-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.5.0/es_core_news_sm-3.5.0-py3-none-any.whl
