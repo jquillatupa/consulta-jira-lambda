@@ -1,33 +1,30 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Parameters:
-  JiraDomainParam:
-    Type: String
-  JiraUserParam:
-    Type: String
-  JiraApiTokenParam:
-    Type: String
-  OutputS3BucketParam:
-    Type: String
+Description: 'Plantilla SAM para validar historias Jira y generar reporte en S3.
+
+  '
+Globals:
+  Function:
+    Runtime: python3.10
+    Timeout: 900
+    MemorySize: 1024
 Resources:
   ValidarHUFunctionLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: validarhu-layer-minimo
-      Description: "Layer m\xEDnimo con spaCy + jira + openpyxl"
-      Content:
-        ZipFile: my-layers/lambda-layer-minimo.zip
+      LayerName: validar-hu-libs
+      Description: Dependencias Python para Jira + pandas + openpyxl + xlsxwriter
+      ContentUri: ..\..\my-layers
       CompatibleRuntimes:
       - python3.10
+      LicenseInfo: MIT
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      Runtime: python3.10
       CodeUri: ValidarHUFunction
-      MemorySize: 128
-      Timeout: 60
+      Runtime: python3.10
       Layers:
       - Ref: ValidarHUFunctionLayer
       Environment:
@@ -39,23 +36,23 @@ Resources:
           JIRA_API_TOKEN:
             Ref: JiraApiTokenParam
           OUTPUT_S3_BUCKET:
-            Ref: OutputS3BucketParam
-      Events:
-        HelloWorldApi:
-          Type: Api
-          Properties:
-            Path: /hello
-            Method: get
+            Ref: OutputS3Bucket
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: OutputS3Bucket
     Metadata:
       SamResourceId: ValidarHUFunction
-Outputs:
-  HelloWorldApi:
-    Description: API Gateway URL para llamar a la Lambda
-    Value:
-      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/
-  HelloWorldFunctionArn:
-    Description: "ARN de la funci\xF3n Lambda"
-    Value:
-      Fn::GetAtt:
-      - ValidarHUFunction
-      - Arn
+Parameters:
+  JiraDomainParam:
+    Type: String
+    Description: 'Dominio de Jira (por ejemplo: miempresa.atlassian.net)'
+  JiraUserParam:
+    Type: String
+    Description: Usuario de Jira
+  JiraApiTokenParam:
+    Type: String
+    Description: API token de Jira
+  OutputS3Bucket:
+    Type: String
+    Description: "Nombre del bucket S3 donde se subir\xE1n los reportes"

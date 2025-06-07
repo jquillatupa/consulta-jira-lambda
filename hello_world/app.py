@@ -4,53 +4,34 @@ import os
 import re
 import json
 import logging
+import tempfile
 import boto3
+import pandas as pd
+import requests
 import spacy
+
 from datetime import datetime
 from jira import JIRA
-from collections import defaultdict
-from openpyxl import Workbook
-from botocore.config import Config
+from xlsxwriter.utility import xl_col_to_name
+from spacy.cli import download as spacy_download
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# ===========================
-# 1) Configurar cliente S3 con Signature V4 y PATH_STYLE
-# ===========================
-#
-#   En lugar de virtual‐hosted, usamos 'path' como addressing_style.
-#   Y no pasamos endpoint_url explicitamente (dejamos que boto3 use 
-#   el default “s3.<region>.amazonaws.com”) pero con PATH_STYLE la URL
-#   tendrá /<bucket>/… en vez de <bucket>.s3.<region>.amazonaws.com/…
-#
-AWS_REGION  = os.getenv("AWS_REGION",  "us-east-1")       # Debe coincidir con la región real del bucket (N. Virginia)
-BUCKET_NAME = os.getenv("OUTPUT_S3_BUCKET")              # p.ej. "reportes-jira-mi-proyecto-20"
+# ---------------------------------------------------
+# 1) Configuración inicial
+# ---------------------------------------------------
+# Rango de fechas (ajusta según necesites)
+START_DATE = datetime(2025, 1, 1)
+END_DATE   = datetime(2025, 3, 31, 23, 59, 59)
 
-config_s3 = Config(
-    signature_version="s3v4",
-    s3={"addressing_style": "path"}   # <--- aquí forzamos Path‐Style
-)
+# IDs de categoría en Jira que nos interesan
+IDS_CATEGORIAS = ["10008", "10009"]
 
-s3 = boto3.client(
-    "s3",
-    region_name=AWS_REGION,
-    config=config_s3
-)
+# Campo de “Criterios de aceptación”
+CUSTOM_FIELD_ID = "customfield_10031"
 
-# ===========================
-# 2) Cargar modelo spaCy en español (“en blanco”)
-# ===========================
-try:
-    nlp = spacy.blank("es")
-except Exception:
-    from spacy.cli import download as spacy_download
-    spacy_download("es_core_news_sm")
-    nlp = spacy.load("es_core_news_sm")
-
-# ===========================
-# 3) CONFIGURACIÓN DE PUNTAJES
-# ===========================
+# Puntuaciones
 P1 = 20   # Descripción
 P2 = 20   # Criterios de Aceptación
 P3 = 15   # Asignatario
@@ -58,396 +39,249 @@ P4 = 20   # Subtareas
 P5 = 10   # Épica Principal
 P6 = 15   # Backlog Priorizado
 
-# ===========================
-# 4) FUNCIONES AUXILIARES
-# ===========================
+# Aseguramos modelo spaCy (español)
+try:
+    nlp = spacy.load("es_core_news_sm")
+except OSError:
+    spacy_download("es_core_news_sm")
+    nlp = spacy.load("es_core_news_sm")
+
+# Cliente S3
+s3 = boto3.client("s3")
+
+
+# ---------------------------------------------------
+# 2) Funciones auxiliares para scoring
+# ---------------------------------------------------
 def es_texto_valido(texto):
-    if not isinstance(texto, str) or not texto.strip():
-        return False
-    limpia = re.sub(r"[^\wáéíóúüñÁÉÍÓÚÜÑ]+", "", texto)
-    return bool(re.search(r"\w", limpia))
+    return isinstance(texto, str) and bool(texto.strip())
 
 def limpiar_para_bloques(texto):
     t = texto.lower()
-    t = re.sub(r"[*_~:`]", "", t)
-    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r'[*_~:`]', '', t)
+    t = re.sub(r'\s+', ' ', t)
     return t.strip()
 
 def _bloque_cqp(texto):
     t = limpiar_para_bloques(texto)
+    variantes = ['quiero','queremos','quisiera','necesito','deseo','busco','me gustaría']
     lines = t.splitlines()
     c = q = p = False
-    variantes = [
-        "quiero", "queremos", "quisiera", "quisiéramos",
-        "necesito", "necesitamos", "requiero", "deseo",
-        "busco", "me gustaría"
-    ]
     for l in lines:
         w = l.split()
-        if not w:
-            continue
-        if w[0] == "como" and len(w) > 1:
-            c = True
-        if w[0] in variantes and len(w) > 1:
-            q = True
-        if w[0] == "para" and len(w) > 1:
-            p = True
+        if not w: continue
+        if w[0]=='como'         and len(w)>1: c = True
+        if w[0] in variantes    and len(w)>1: q = True
+        if w[0]=='para'         and len(w)>1: p = True
     return c and q and p
 
-def _contiene_verbo_directo(txt, lista):
-    palabras = re.findall(r"\b\w+\b", txt.lower())
-    return any(v in palabras for v in lista)
-
-# ===========================
-# 5) EVALUACIÓN DESCRIPCIÓN (C1)
-# ===========================
-VERBOS_DESC      = [
-    "crear", "desarrollar", "implementar",
-    "validar", "mostrar", "generar", "obtener", "marcar"
-]
-SUST_DESC        = ["validación", "consistencia", "ejecución", "documentación"]
-VARIANTES_QUIERO = ["quiero", "necesito", "busco", "me gustaría"]
-
-def evaluar_descripcion_detallada(texto):
-    if not es_texto_valido(texto):
-        return 0
-
-    # 1) Limpiar asteriscos y unir líneas
-    txt = re.sub(r"[\*\-•]", "", texto).replace("\n", " ")
+def evaluar_descripcion(texto):
+    if not es_texto_valido(texto): return 0
+    txt = re.sub(r'[\*\-•]', '', texto).replace('\n',' ')
     doc = nlp(txt)
-
-    # 2) Estructura “Como... Quiero... Para...”
-    expr = r"\bcomo\b.*\b(" + "|".join(VARIANTES_QUIERO) + r")\b.*\bpara\b"
+    expr = r'\bcomo\b.*\b(quiero|necesito|busco)\b.*\bpara\b'
     estructura = bool(re.search(expr, txt, flags=re.IGNORECASE)) or _bloque_cqp(texto)
+    verbo_nlp = any(tok.pos_=="VERB" for tok in doc)
+    palabras  = len(txt.split())
+    longitud  = palabras>=15 or (verbo_nlp and palabras>=8)
+    return P1 if (estructura or verbo_nlp) and longitud else 0
 
-    # 3) Detectar verbo y sustantivo vía spaCy
-    verbo_nlp = any(tok.pos_ == "VERB" for tok in doc)
-    sust_nlp  = any(tok.pos_ == "NOUN" for tok in doc)
-
-    # 4) Longitud mínima: ≥15 palabras, o ≥8 si tiene algún verbo
-    palabras = len(txt.split())
-    longitud = palabras >= 15 or (verbo_nlp and palabras >= 8)
-
-    # 5) Si (estructura ∨ verbo_nlp ∨ sust_nlp) ∧ longitud → puntaje
-    if (estructura or verbo_nlp or sust_nlp) and longitud:
-        return P1
-    return 0
-
-def observar_falla_descripcion(texto):
-    if not es_texto_valido(texto):
-        return "Texto vacío o inválido"
-    txt, fallas = texto.lower(), []
-    if len(txt.split()) < 15:
-        fallas.append("Menos de 15 palabras")
-    expr = re.search(
-        r"\bcomo\b.*\b(" + "|".join(VARIANTES_QUIERO) + r")\b.*\bpara\b",
-        txt, flags=re.IGNORECASE
-    )
-    if not (expr or _bloque_cqp(texto)):
-        fallas.append("Sin estructura Como-Quiero-Para")
-    doc = nlp(txt)
-    if not any(t.pos_ == "VERB" for t in doc) and not _contiene_verbo_directo(txt, VERBOS_DESC):
-        fallas.append("Sin verbo válido")
-    return "; ".join(fallas)
-
-# ===========================
-# 6) EVALUACIÓN CRITERIOS (C2)
-# ===========================
-VERBOS_CRIT = ["validar", "entregar", "realizar", "listar", "actualizar", "eliminar"]
-SUST_CRIT   = ["validación", "exactitud", "cumplimiento", "consistencia"]
-
-def evaluar_criterios_detallado(texto):
-    if not es_texto_valido(texto):
-        return 0
-    txt   = re.sub(r"[\*\-•]", "", texto)
+def evaluar_criterios(texto):
+    if not es_texto_valido(texto): return 0
     lines = texto.splitlines()
-    items = [l for l in lines if re.match(r"^\s*([-*•]|\d+\.)\s+.+", l)]
-    paras = [b for b in texto.split("\n\n") if len(b.split()) >= 4]
-    impl  = [l for l in lines if len(l.strip().split()) >= 3]
-    lista = len(items) >= 2 or len(paras) >= 2 or len(impl) >= 2
-    doc   = nlp(txt)
-    verbo     = any(t.pos_ == "VERB" for t in doc)
-    verbo_bl  = _contiene_verbo_directo(txt, VERBOS_CRIT)
-    sust      = any(s in txt.lower() for s in SUST_CRIT)
-    return P2 if lista and (verbo or verbo_bl or sust) else 0
+    items = [l for l in lines if re.match(r'^\s*([-*•]|\d+\.)\s+.+', l)]
+    paras = [b for b in texto.split('\n\n') if len(b.split())>=4]
+    doc   = nlp(texto)
+    verbo = any(tok.pos_=="VERB" for tok in doc)
+    return P2 if (len(items)>=2 or len(paras)>=2) and verbo else 0
 
-def observar_falla_criterios(texto):
-    if not es_texto_valido(texto):
-        return "Texto vacío o inválido"
-    lines = texto.splitlines()
-    items = [l for l in lines if re.match(r"^\s*([-*•]|\d+\.)\s+.+", l)]
-    impl  = [l for l in lines if len(l.split()) >= 3]
-    if len(items) < 2 and len(impl) < 2:
-        return "Sin lista válida"
-    txt = texto.lower()
-    doc = nlp(txt)
-    if not any(t.pos_ == "VERB" for t in doc) and not _contiene_verbo_directo(txt, VERBOS_CRIT):
-        return "Sin verbo/acción clara"
-    return ""
-
-# ===========================
-# 7) EVALUACIÓN ASIGNATARIO (C3)
-# ===========================
-def evaluar_criterio_asignatario(a):
+def evaluar_asignatario(a):
     return P3 if isinstance(a, str) and a.strip() else 0
 
-# ===========================
-# 8) EVALUACIÓN SUBTAREAS (C4)
-# ===========================
-def evaluar_criterio_subtareas(n):
-    try:
-        return P4 if int(n) > 1 else 0
-    except:
-        return 0
+def evaluar_subtareas(n):
+    try: return P4 if int(n)>1 else 0
+    except: return 0
 
-# ===========================
-# 9) EVALUACIÓN ÉPICA PRINCIPAL (C5)
-# ===========================
-def evaluar_criterio_epica(p):
+def evaluar_epica(p):
     return P5 if isinstance(p, str) and p.strip() else 0
 
-# ===========================
-# 10) OBSERVACIONES POR FILA (Opcional)
-# ===========================
-def obs_desc_row(r):
-    desc = r["Description"] if isinstance(r["Description"], str) else ""
-    punt = r["Puntaje Descripción"]
-    if punt > 0:
-        razones = []
-        if (re.search(r"\bcomo\b", desc, flags=re.IGNORECASE) or _bloque_cqp(desc)):
-            razones.append("Estructura")
-        if any(t.pos_ == "VERB" for t in nlp(desc)):
-            razones.append("Verbo NLP")
-        if _contiene_verbo_directo(desc, VERBOS_DESC):
-            razones.append("Verbo blanco")
-        if any(s in desc.lower() for s in SUST_DESC):
-            razones.append("Sustantivo")
-        if len(desc.split()) >= 15 or (_contiene_verbo_directo(desc, VERBOS_DESC) and len(desc.split()) >= 8):
-            razones.append("Longitud OK")
-        return "; ".join(dict.fromkeys(razones))
-    else:
-        return observar_falla_descripcion(desc)
+# ---------------------------------------------------
+# 3) Función para extraer proyectos por categoría
+# ---------------------------------------------------
+HEADERS = {"Accept":"application/json"}
 
-def obs_crit_row(r):
-    crit = r["Criterios de aceptación"] if isinstance(r["Criterios de aceptación"], str) else ""
-    punt = r["Puntaje Criterios"]
-    if punt > 0:
-        razones = []
-        lines = crit.splitlines()
-        if len([l for l in lines if re.match(r"^\s*([-*•]|\d+\.)\s+.+", l)]) >= 2 \
-           or len([b for b in crit.split("\n\n") if len(b.split()) >= 4]) >= 2:
-            razones.append("Lista OK")
-        if any(t.pos_ == "VERB" for t in nlp(crit)):
-            razones.append("Verbo NLP")
-        if _contiene_verbo_directo(crit, VERBOS_CRIT):
-            razones.append("Verbo blanco")
-        if any(s in crit.lower() for s in SUST_CRIT):
-            razones.append("Sustantivo")
-        return "; ".join(dict.fromkeys(razones))
-    else:
-        return observar_falla_criterios(crit)
+def fetch_projects_by_category(category_id, jira_domain, jira_user, jira_api_token):
+    all_values = []
+    start_at   = 0
+    max_results= 100
+    while True:
+        url = f"{jira_domain}/rest/api/3/project/search"
+        params = {
+            "categoryId": category_id,
+            "expand":     "lead",
+            "maxResults": max_results,
+            "startAt":    start_at
+        }
+        resp = requests.get(
+            url,
+            auth=(jira_user, jira_api_token),
+            headers=HEADERS,
+            params=params
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        all_values.extend(data.get("values", []))
+        if data.get("isLast", True): break
+        start_at += data.get("maxResults", max_results)
+    return all_values
 
-# ===========================
-# 11) HANDLER PRINCIPAL
-# ===========================
+
+# ---------------------------------------------------
+# 4) Lambda handler
+# ---------------------------------------------------
 def lambda_handler(event, context):
-    # 11.1) Leer variables de entorno para Jira
+    # leer env vars
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
     jira_api_token = os.getenv("JIRA_API_TOKEN")
+    bucket         = os.getenv("OUTPUT_S3_BUCKET")
 
-    # 11.2) Asignar correctamente s3_bucket desde la variable global
-    s3_bucket = BUCKET_NAME  # "reportes-jira-mi-proyecto-20"
+    # validar
+    faltan = [v for v in ["JIRA_DOMAIN","JIRA_USER","JIRA_API_TOKEN","OUTPUT_S3_BUCKET"] if not os.getenv(v)]
+    if faltan:
+        return {"statusCode":400, "body": json.dumps({"error":f"Faltan vars: {faltan}"})}
 
-    # 11.3) Validar que no falte ninguna variable de entorno
-    missing = [
-        v for v in ["JIRA_DOMAIN", "JIRA_USER", "JIRA_API_TOKEN", "OUTPUT_S3_BUCKET"]
-        if not os.getenv(v)
-    ]
-    if missing:
-        return {
-            "statusCode": 400,
-            "body": json.dumps({
-                "error": f"Faltan variables de entorno: {', '.join(missing)}"
-            })
-        }
-
-    # 11.4) Conectarse a Jira
+    # autenticar JIRA
     try:
-        options = {"server": f"https://{jira_domain}"}
-        jira_client = JIRA(options, basic_auth=(jira_user, jira_api_token))
+        jira = JIRA({"server":jira_domain}, basic_auth=(jira_user, jira_api_token))
     except Exception as e:
         logger.exception("No se pudo autenticar en Jira")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": "Fallo al autenticar en Jira", "details": str(e)})
-        }
+        return {"statusCode":500, "body":json.dumps({"error":"Autenticación Jira fallida","details":str(e)})}
 
-    # 11.5) Definir y ejecutar la consulta JQL en Jira
-    jql = "assignee=currentUser() AND resolution = Unresolved ORDER BY priority DESC"
-    try:
-        issues_jira = jira_client.search_issues(
-            jql,
-            maxResults=50,
-            fields=[
-                "key",
-                "summary",
-                "status",
-                "description",
-                "customfield_10031",
-                "assignee",
-                "subtasks",
-                "parent",
-            ],
-            expand="changelog"
+    # obtener proyectos filtrados
+    proyectos = []
+    vistos     = set()
+    for cat in IDS_CATEGORIAS:
+        for p in fetch_projects_by_category(cat, jira_domain, jira_user, jira_api_token):
+            if p["key"] not in vistos:
+                vistos.add(p["key"])
+                proyectos.append({
+                    "key":          p["key"],
+                    "name":         p["name"],
+                    "category":     p.get("projectCategory",{}).get("name"),
+                    "lead":         p.get("lead",{}).get("displayName")
+                })
+
+    PROJECT_KEYS = [p["key"] for p in proyectos]
+
+    # recorrer cada proyecto y sus historias
+    data  = []
+    no_issues = []
+    for pk in PROJECT_KEYS:
+        issues = jira.search_issues(
+            f'project="{pk}" AND issuetype=Story',
+            maxResults=1000, expand="changelog"
         )
-    except Exception as e:
-        logger.exception("Error al ejecutar search_issues en Jira")
-        return {
-            "statusCode": 502,
-            "body": json.dumps({"error": "Fallo al consultar Jira", "details": str(e)})
-        }
+        if not issues:
+            no_issues.append(pk)
+        for issue in issues:
+            # extraer último estado en periodo
+            ultimo = None
+            for h in issue.changelog.histories:
+                dt = datetime.strptime(h.created[:19], "%Y-%m-%dT%H:%M:%S")
+                if START_DATE<=dt<=END_DATE:
+                    for it in h.items:
+                        if it.field=="status":
+                            ultimo = it.toString
+            estado = ultimo or issue.fields.status.name
+            parent = getattr(issue.fields, "parent", None)
+            data.append({
+                "Proyecto":           pk,
+                "Nombre del Proyecto": next((x["name"] for x in proyectos if x["key"]==pk), ""),
+                "Categoría Proyecto":  next((x["category"] for x in proyectos if x["key"]==pk), ""),
+                "Responsable Proyecto":next((x["lead"] for x in proyectos if x["key"]==pk), ""),
+                "Key":                issue.key,
+                "Summary":            issue.fields.summary,
+                "Status":             estado,
+                "Description":        issue.fields.description or "",
+                "Criterios de aceptación": getattr(issue.fields, CUSTOM_FIELD_ID, ""),
+                "Epica Principal":    getattr(parent, "fields", {}).__dict__.get("summary","") if parent else "",
+                "Assignee":           issue.fields.assignee.displayName if issue.fields.assignee else "",
+                "Número de Sub-tareas": len(issue.fields.subtasks)
+            })
 
-    # 11.6) Armar lista de diccionarios con todos los campos y puntajes
-    registros = []
-    for issue in issues_jira:
-        campos      = issue.fields
-        key         = issue.key
-        summary     = campos.summary
-        status      = campos.status.name
-        description = campos.description or ""
-        assignee    = campos.assignee.displayName if campos.assignee else None
-        criteria    = getattr(campos, "customfield_10031", None) or ""
-        epic_sum    = campos.parent.fields.summary if hasattr(campos, "parent") and campos.parent else ""
-        num_subs    = len(campos.subtasks) if hasattr(campos, "subtasks") else 0
+    # 5) Exportar primer excel (raw) a /tmp y subir a DataJira
+    df = pd.DataFrame(data)
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    tmp1 = f"/tmp/jira_data_{ts}.xlsx"
+    df.to_excel(tmp1, sheet_name="Stories", index=False)
 
-        punt_desc  = evaluar_descripcion_detallada(description)
-        punt_crit  = evaluar_criterios_detallado(criteria or "")
-        punt_asig  = evaluar_criterio_asignatario(assignee or "")
-        punt_subtk = evaluar_criterio_subtareas(num_subs)
-        punt_epica = evaluar_criterio_epica(epic_sum or "")
+    key1 = f"reports/DataJira/jira_data_{ts}.xlsx"
+    s3.upload_file(tmp1, bucket, key1)
 
-        registros.append({
-            "Key": key,
-            "Summary": summary,
-            "Status": status,
-            "Description": description,
-            "Assignee": assignee or "Sin Asignar",
-            "Criterios de aceptación": criteria,
-            "Épica Principal": epic_sum,
-            "Número de Sub-tareas": num_subs,
-            "Puntaje Descripción": punt_desc,
-            "Puntaje Criterios": punt_crit,
-            "Puntaje Asignatario": punt_asig,
-            "Puntaje Subtareas": punt_subtk,
-            "Puntaje Épica": punt_epica,
-            # (Opcional: "Observación Descripción": obs_desc_row(r), "Observación Criterios": obs_crit_row(r))
-        })
+    # ---------------------------------------------------
+    # 6) Scoring y generación de segundo excel
+    # ---------------------------------------------------
+    df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
+    df["Puntaje Criterios"]   = df["Criterios de aceptación"].apply(evaluar_criterios)
+    df["Puntaje Asignatario"] = df["Assignee"].apply(evaluar_asignatario)
+    df["Puntaje Subtareas"]   = df["Número de Sub-tareas"].apply(evaluar_subtareas)
+    df["Puntaje Épica"]       = df["Epica Principal"].apply(evaluar_epica)
 
-    if not registros:
-        return {"statusCode": 200, "body": json.dumps({"message": "No se encontraron issues"})}
+    # flag backlog
+    backlog_flag = df.groupby("Proyecto")["Status"]\
+                     .apply(lambda s: P6 if s.str.lower().eq("backlog priorizado").any() else 0)
+    # resumen por proyecto
+    resumen = df.groupby(
+        ["Proyecto","Nombre del Proyecto","Responsable Proyecto"]
+    )["Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario","Puntaje Subtareas","Puntaje Épica"]\
+     .mean().reset_index()
 
-    # 11.7) Construir “pivot” en memoria para conteo por assignee y status
-    pivot = defaultdict(lambda: defaultdict(int))
-    for r in registros:
-        a = r["Assignee"]
-        s = r["Status"]
-        pivot[a][s] += 1
+    resumen["C6 Backlog"]       = resumen["Proyecto"].map(backlog_flag)
+    resumen["Puntaje Total"]    = resumen[[
+        "Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario",
+        "Puntaje Subtareas","Puntaje Épica","C6 Backlog"
+    ]].sum(axis=1)
+    # clasificación
+    def cls(v):
+        return ("Excelente" if v>=90 else
+                "Adecuado" if v>=80 else
+                "Por mejorar" if v>=65 else
+                "Incompleto" if v>=50 else
+                "Desastre")
+    resumen["Clasificación"] = resumen["Puntaje Total"].apply(cls)
 
-    todos_estados = sorted({s for sub in pivot.values() for s in sub.keys()})
+    # 7) Exportar segundo excel (analizado)
+    tmp2 = f"/tmp/jira_data_anali_{ts}.xlsx"
+    with pd.ExcelWriter(tmp2, engine="xlsxwriter") as w:
+        df.to_excel(w, sheet_name="User Stories", index=False)
+        resumen.to_excel(w, sheet_name="Resumen por Proyecto", index=False)
 
-    # 11.8) Crear un archivo Excel en /tmp/ con openpyxl
-    timestamp   = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    nombre_arch = f"reporte_jira_{timestamp}.xlsx"
-    ruta_local  = f"/tmp/{nombre_arch}"
+        # formato numérico (2 decimales) en Resumen
+        book  = w.book
+        ws    = w.sheets["Resumen por Proyecto"]
+        fmt   = book.add_format({"num_format":"0.00"})
+        for i,col in enumerate(resumen.columns):
+            if col in ["Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario",
+                       "Puntaje Subtareas","Puntaje Épica","Puntaje Total"]:
+                letter = xl_col_to_name(i)
+                ws.set_column(f"{letter}:{letter}", None, fmt)
 
-    try:
-        wb  = Workbook()
-        ws1 = wb.active
-        ws1.title = "Raw_Issues"
-        encabezados = [
-            "Key",
-            "Summary",
-            "Status",
-            "Description",
-            "Assignee",
-            "Criterios de aceptación",
-            "Épica Principal",
-            "Número de Sub-tareas",
-            "Puntaje Descripción",
-            "Puntaje Criterios",
-            "Puntaje Asignatario",
-            "Puntaje Subtareas",
-            "Puntaje Épica"
-        ]
-        ws1.append(encabezados)
-        for r in registros:
-            fila = [
-                r["Key"],
-                r["Summary"],
-                r["Status"],
-                r["Description"],
-                r["Assignee"],
-                r["Criterios de aceptación"],
-                r["Épica Principal"],
-                r["Número de Sub-tareas"],
-                r["Puntaje Descripción"],
-                r["Puntaje Criterios"],
-                r["Puntaje Asignatario"],
-                r["Puntaje Subtareas"],
-                r["Puntaje Épica"]
-            ]
-            ws1.append(fila)
+    key2 = f"reports/Analizado/jira_data_anali_{ts}.xlsx"
+    s3.upload_file(tmp2, bucket, key2)
 
-        ws2 = wb.create_sheet("Resumen_Pivot")
-        ws2.append(["Assignee"] + todos_estados)
-        for a, subdict in pivot.items():
-            fila = [a] + [subdict.get(s, 0) for s in todos_estados]
-            ws2.append(fila)
-
-        wb.save(ruta_local)
-    except Exception as e:
-        logger.exception("No se pudo escribir el archivo Excel en /tmp/")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": "Error al generar Excel", "details": str(e)})
-        }
-
-    # 11.9) Subir el archivo Excel a S3 (prefijo "Analizado/")
-    s3_key = f"Analizado/{nombre_arch}"
-    try:
-        s3.upload_file(ruta_local, s3_bucket, s3_key)
-    except Exception as e:
-        logger.exception("Error al subir el Excel a S3")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": "Fallo al subir a S3", "details": str(e)})
-        }
-
-    # 11.10) Generar URL pre-firmada (Signature V4) en PATH‐STYLE
-    try:
-        url_presignada = s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": s3_bucket, "Key": s3_key},
-            ExpiresIn=3600,    # 1 hora (3600 segundos)
-            
-           
-        )
-       
-    except Exception:
-        # En caso de que algo falle, devolvemos la ruta pública en path‐style
-        #url_presignada = (
-            #f"https://s3.{AWS_REGION}.amazonaws.com/"
-            #f"{s3_bucket}/{s3_key}"
-            
-        #)
-                url_presignada = f"https://{s3_bucket}.s3.amazonaws.com/{s3_key}"
-
+    # 8) Generar URL pre-firmada del analizado
+    url2 = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket":bucket, "Key":key2},
+        ExpiresIn=3600
+    )
 
     return {
         "statusCode": 200,
         "body": json.dumps({
-            "message": "Reporte generado correctamente",
-            "report_url": url_presignada
+            "message": "Reportes generados correctamente",
+            "raw_report":     f"https://{bucket}.s3.amazonaws.com/{key1}",
+            "analizado_report": url2
         })
     }
