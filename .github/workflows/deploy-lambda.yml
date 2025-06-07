@@ -21,7 +21,11 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      # Ya no es necesario instalar Python 3.9 porque ubuntu-latest incluye Python 3.10
+      - name: 🐍 Setup Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
       - name: 🔍 Check default Python version
         run: |
           python --version
@@ -41,7 +45,7 @@ jobs:
 
       - name: 🏗️ SAM Build
         run: |
-          sam build --cached
+          sam build --cached --use-container
 
       - name: 📦 SAM Package
         run: |
