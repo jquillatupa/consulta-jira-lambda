@@ -1,5 +1,4 @@
 # cython: optimize.unpack_method_calls=False
-# cython: profile=False
 IDS = {
     "": NIL,
     "IS_ALPHA": IS_ALPHA,
@@ -97,7 +96,7 @@ IDS = {
     "ADV": ADV,
     "AUX": AUX,
     "CONJ": CONJ,
-    "CCONJ": CCONJ,  # U20
+    "CCONJ": CCONJ, # U20
     "DET": DET,
     "INTJ": INTJ,
     "NOUN": NOUN,
@@ -422,7 +421,7 @@ IDS = {
     "ccomp": ccomp,
     "complm": complm,
     "conj": conj,
-    "cop": cop,  # U20
+    "cop": cop, # U20
     "csubj": csubj,
     "csubjpass": csubjpass,
     "dep": dep,
@@ -445,8 +444,8 @@ IDS = {
     "num": num,
     "number": number,
     "oprd": oprd,
-    "obj": obj,  # U20
-    "obl": obl,  # U20
+    "obj": obj, # U20
+    "obl": obl, # U20
     "parataxis": parataxis,
     "partmod": partmod,
     "pcomp": pcomp,
@@ -479,4 +478,3 @@ NAMES = [it[0] for it in sorted(IDS.items(), key=sort_nums)]
 # (which is generating an enormous amount of C++ in Cython 0.24+)
 # We keep the enum cdef, and just make sure the names are available to Python
 locals().update(IDS)
-

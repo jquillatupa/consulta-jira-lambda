@@ -3,11 +3,11 @@
 # Workbook - A class for writing the Excel XLSX Workbook file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 # Standard packages.
+import hashlib
 import operator
 import os
 import re
@@ -15,13 +15,19 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
+from struct import unpack
 from warnings import warn
-from zipfile import ZIP_DEFLATED, LargeZipFile, ZipFile, ZipInfo
+from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED, LargeZipFile
 
-from xlsxwriter.image import Image
 
 # Package imports.
 from . import xmlwriter
+from .worksheet import Worksheet
+from .chartsheet import Chartsheet
+from .sharedstrings import SharedStringTable
+from .format import Format
+from .packager import Packager
+from .utility import xl_cell_to_rowcol
 from .chart_area import ChartArea
 from .chart_bar import ChartBar
 from .chart_column import ChartColumn
@@ -31,18 +37,12 @@ from .chart_pie import ChartPie
 from .chart_radar import ChartRadar
 from .chart_scatter import ChartScatter
 from .chart_stock import ChartStock
-from .chartsheet import Chartsheet
-from .exceptions import (
-    DuplicateWorksheetName,
-    FileCreateError,
-    FileSizeError,
-    InvalidWorksheetName,
-)
-from .format import Format
-from .packager import Packager
-from .sharedstrings import SharedStringTable
-from .utility import xl_cell_to_rowcol
-from .worksheet import Worksheet
+from .exceptions import InvalidWorksheetName
+from .exceptions import DuplicateWorksheetName
+from .exceptions import UndefinedImageSize
+from .exceptions import UnsupportedImageFormat
+from .exceptions import FileCreateError
+from .exceptions import FileSizeError
 
 
 class Workbook(xmlwriter.XMLwriter):
@@ -68,7 +68,7 @@ class Workbook(xmlwriter.XMLwriter):
         if options is None:
             options = {}
 
-        super().__init__()
+        super(Workbook, self).__init__()
 
         self.filename = filename
 
@@ -146,11 +146,6 @@ class Workbook(xmlwriter.XMLwriter):
         self.has_comments = False
         self.read_only = 0
         self.has_metadata = False
-        self.has_embedded_images = False
-        self.has_dynamic_functions = False
-        self.has_embedded_descriptions = False
-        self.embedded_images = EmbeddedImages()
-        self.feature_property_bags = set()
 
         # We can't do 'constant_memory' mode while doing 'in_memory' mode.
         if self.in_memory:
@@ -176,7 +171,6 @@ class Workbook(xmlwriter.XMLwriter):
         return self
 
     def __exit__(self, type, value, traceback):
-        # pylint: disable=redefined-builtin
         """Close workbook when exiting "with" statement."""
         self.close()
 
@@ -256,7 +250,7 @@ class Workbook(xmlwriter.XMLwriter):
         chart_type = options.get("type")
         if chart_type is None:
             warn("Chart type must be defined in add_chart()")
-            return None
+            return
 
         if chart_type == "area":
             chart = ChartArea(options)
@@ -265,20 +259,20 @@ class Workbook(xmlwriter.XMLwriter):
         elif chart_type == "column":
             chart = ChartColumn(options)
         elif chart_type == "doughnut":
-            chart = ChartDoughnut()
+            chart = ChartDoughnut(options)
         elif chart_type == "line":
             chart = ChartLine(options)
         elif chart_type == "pie":
-            chart = ChartPie()
+            chart = ChartPie(options)
         elif chart_type == "radar":
             chart = ChartRadar(options)
         elif chart_type == "scatter":
             chart = ChartScatter(options)
         elif chart_type == "stock":
-            chart = ChartStock()
+            chart = ChartStock(options)
         else:
-            warn(f"Unknown chart type '{chart_type}' in add_chart()")
-            return None
+            warn("Unknown chart type '%s' in add_chart()" % chart_type)
+            return
 
         # Set the embedded chart name if present.
         if "name" in options:
@@ -301,11 +295,11 @@ class Workbook(xmlwriter.XMLwriter):
             is_stream:   vba_project is an in memory byte stream.
 
         Returns:
-            0 on success.
+            Nothing.
 
         """
         if not is_stream and not os.path.exists(vba_project):
-            warn(f"VBA project binary file '{vba_project}' not found.")
+            warn("VBA project binary file '%s' not found." % vba_project)
             return -1
 
         if self.vba_codename is None:
@@ -313,8 +307,6 @@ class Workbook(xmlwriter.XMLwriter):
 
         self.vba_project = vba_project
         self.vba_project_is_stream = is_stream
-
-        return 0
 
     def add_signed_vba_project(
         self, vba_project, signature, project_is_stream=False, signature_is_stream=False
@@ -330,20 +322,18 @@ class Workbook(xmlwriter.XMLwriter):
             signature_is_stream:   signature is an in memory byte stream.
 
         Returns:
-            0 on success.
+            Nothing.
 
         """
         if self.add_vba_project(vba_project, project_is_stream) == -1:
             return -1
 
         if not signature_is_stream and not os.path.exists(signature):
-            warn(f"VBA project signature binary file '{signature}' not found.")
+            warn("VBA project signature binary file '%s' not found." % signature)
             return -1
 
         self.vba_project_signature = signature
         self.vba_project_signature_is_stream = signature_is_stream
-
-        return 0
 
     def close(self):
         """
@@ -356,7 +346,6 @@ class Workbook(xmlwriter.XMLwriter):
             Nothing.
 
         """
-        # pylint: disable=raise-missing-from
         if not self.fileclosed:
             try:
                 self._store_workbook()
@@ -416,7 +405,7 @@ class Workbook(xmlwriter.XMLwriter):
             return
 
         if tab_ratio < 0 or tab_ratio > 100:
-            warn(f"Tab ratio '{tab_ratio}' outside: 0 <= tab_ratio <= 100")
+            warn("Tab ratio '%d' outside: 0 <= tab_ratio <= 100" % tab_ratio)
         else:
             self.tab_ratio = int(tab_ratio * 10)
 
@@ -443,7 +432,7 @@ class Workbook(xmlwriter.XMLwriter):
             property_type: The type of the custom property. Optional.
 
         Returns:
-            0 on success.
+            Nothing.
 
         """
         if name is None or value is None:
@@ -466,31 +455,22 @@ class Workbook(xmlwriter.XMLwriter):
             else:
                 property_type = "text"
 
-        # Convert non-string values to strings to have a single data type.
-        if property_type == "bool":
-            value = str(value).lower()
-
         if property_type == "date":
             value = value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        if property_type in ("number", "number_int"):
-            value = str(value)
-
         if property_type == "text" and len(value) > 255:
             warn(
-                f"Length of 'value' parameter exceeds Excel's limit of 255 "
-                f"characters in set_custom_property(): '{value}'"
+                "Length of 'value' parameter exceeds Excel's limit of 255 "
+                "characters in set_custom_property(): '%s'" % value
             )
 
         if len(name) > 255:
             warn(
-                f"Length of 'name' parameter exceeds Excel's limit of 255 "
-                f"characters in set_custom_property(): '{name}'"
+                "Length of 'name' parameter exceeds Excel's limit of 255 "
+                "characters in set_custom_property(): '%s'" % name
             )
 
         self.custom_properties.append((name, value, property_type))
-
-        return 0
 
     def set_calc_mode(self, mode, calc_id=None):
         """
@@ -528,7 +508,7 @@ class Workbook(xmlwriter.XMLwriter):
             formula: The cell or range that the defined name refers to.
 
         Returns:
-            0 on success.
+            Nothing.
 
         """
         sheet_index = None
@@ -549,7 +529,7 @@ class Workbook(xmlwriter.XMLwriter):
 
             # Warn if the sheet index wasn't found.
             if sheet_index is None:
-                warn(f"Unknown sheet name '{sheetname}' in defined_name()")
+                warn("Unknown sheet name '%s' in defined_name()" % sheetname)
                 return -1
         else:
             # Use -1 to indicate global names.
@@ -559,22 +539,20 @@ class Workbook(xmlwriter.XMLwriter):
         if not re.match(r"^[\w\\][\w\\.]*$", name, re.UNICODE) or re.match(
             r"^\d", name
         ):
-            warn(f"Invalid Excel characters in defined_name(): '{name}'")
+            warn("Invalid Excel characters in defined_name(): '%s'" % name)
             return -1
 
         # Warn if the defined name looks like a cell name.
         if re.match(r"^[a-zA-Z][a-zA-Z]?[a-dA-D]?\d+$", name):
-            warn(f"Name looks like a cell name in defined_name(): '{name}'")
+            warn("Name looks like a cell name in defined_name(): '%s'" % name)
             return -1
 
         # Warn if the name looks like a R1C1 cell reference.
         if re.match(r"^[rcRC]$", name) or re.match(r"^[rcRC]\d+[rcRC]\d+$", name):
-            warn(f"Invalid name '{name}' like a RC cell ref in defined_name()")
+            warn("Invalid name '%s' like a RC cell ref in defined_name()" % name)
             return -1
 
         self.defined_names.append([name, sheet_index, formula, False])
-
-        return 0
 
     def worksheets(self):
         """
@@ -706,7 +684,6 @@ class Workbook(xmlwriter.XMLwriter):
         self._xml_close()
 
     def _store_workbook(self):
-        # pylint: disable=consider-using-with
         # Create the xlsx/zip file.
         try:
             xlsx_file = ZipFile(
@@ -831,12 +808,10 @@ class Workbook(xmlwriter.XMLwriter):
             "nan_inf_to_errors": self.nan_inf_to_errors,
             "default_date_format": self.default_date_format,
             "default_url_format": self.default_url_format,
-            "workbook_add_format": self.add_format,
             "excel2003_style": self.excel2003_style,
             "remove_timezone": self.remove_timezone,
             "max_url_length": self.max_url_length,
             "use_future_functions": self.use_future_functions,
-            "embedded_images": self.embedded_images,
         }
 
         worksheet._initialize(init_data)
@@ -867,19 +842,19 @@ class Workbook(xmlwriter.XMLwriter):
         # Check that sheet sheetname is <= 31. Excel limit.
         if len(sheetname) > 31:
             raise InvalidWorksheetName(
-                f"Excel worksheet name '{sheetname}' must be <= 31 chars."
+                "Excel worksheet name '%s' must be <= 31 chars." % sheetname
             )
 
         # Check that sheetname doesn't contain any invalid characters.
         if invalid_char.search(sheetname):
             raise InvalidWorksheetName(
-                f"Invalid Excel character '[]:*?/\\' in sheetname '{sheetname}'."
+                "Invalid Excel character '[]:*?/\\' in sheetname '%s'." % sheetname
             )
 
         # Check that sheetname doesn't start or end with an apostrophe.
         if sheetname.startswith("'") or sheetname.endswith("'"):
             raise InvalidWorksheetName(
-                f'Sheet name cannot start or end with an apostrophe "{sheetname}".'
+                'Sheet name cannot start or end with an apostrophe "%s".' % sheetname
             )
 
         # Check that the worksheet name doesn't already exist since this is a
@@ -887,7 +862,7 @@ class Workbook(xmlwriter.XMLwriter):
         for worksheet in self.worksheets():
             if sheetname.lower() == worksheet.name.lower():
                 raise DuplicateWorksheetName(
-                    f"Sheetname '{sheetname}', with case ignored, is already in use."
+                    "Sheetname '%s', with case ignored, is already in use." % sheetname
                 )
 
         return sheetname
@@ -965,12 +940,12 @@ class Workbook(xmlwriter.XMLwriter):
             if key in fonts:
                 # Font has already been used.
                 xf_format.font_index = fonts[key]
-                xf_format.has_font = False
+                xf_format.has_font = 0
             else:
                 # This is a new font.
                 fonts[key] = index
                 xf_format.font_index = index
-                xf_format.has_font = True
+                xf_format.has_font = 1
                 index += 1
 
         self.font_count = index
@@ -986,7 +961,7 @@ class Workbook(xmlwriter.XMLwriter):
                 or xf_format.underline
                 or xf_format.font_strikeout
             ):
-                xf_format.has_dxf_font = True
+                xf_format.has_dxf_font = 1
 
     def _prepare_num_formats(self):
         # User defined records in Excel start from index 0xA4.
@@ -1007,13 +982,11 @@ class Workbook(xmlwriter.XMLwriter):
 
                 xf_format.num_format_index = num_format
                 continue
-
-            if num_format == "0":
+            elif num_format == "0":
                 # Number format '0' is indexed as 1 in Excel.
                 xf_format.num_format_index = 1
                 continue
-
-            if num_format == "General":
+            elif num_format == "General":
                 # The 'General' format has an number format index of 0.
                 xf_format.num_format_index = 0
                 continue
@@ -1045,12 +1018,12 @@ class Workbook(xmlwriter.XMLwriter):
             if key in borders:
                 # Border has already been used.
                 xf_format.border_index = borders[key]
-                xf_format.has_border = False
+                xf_format.has_border = 0
             else:
                 # This is a new border.
                 borders[key] = index
                 xf_format.border_index = index
-                xf_format.has_border = True
+                xf_format.has_border = 1
                 index += 1
 
         self.border_count = index
@@ -1062,7 +1035,7 @@ class Workbook(xmlwriter.XMLwriter):
             key = xf_format._get_border_key()
 
             if has_border.search(key):
-                xf_format.has_dxf_border = True
+                xf_format.has_dxf_border = 1
 
     def _prepare_fills(self):
         # Iterate through the XF Format objects and give them an index to
@@ -1079,7 +1052,7 @@ class Workbook(xmlwriter.XMLwriter):
         # Store the DXF colors separately since them may be reversed below.
         for xf_format in self.dxf_formats:
             if xf_format.pattern or xf_format.bg_color or xf_format.fg_color:
-                xf_format.has_dxf_fill = True
+                xf_format.has_dxf_fill = 1
                 xf_format.dxf_bg_color = xf_format.bg_color
                 xf_format.dxf_fg_color = xf_format.fg_color
 
@@ -1121,28 +1094,15 @@ class Workbook(xmlwriter.XMLwriter):
             if key in fills:
                 # Fill has already been used.
                 xf_format.fill_index = fills[key]
-                xf_format.has_fill = False
+                xf_format.has_fill = 0
             else:
                 # This is a new fill.
                 fills[key] = index
                 xf_format.fill_index = index
-                xf_format.has_fill = True
+                xf_format.has_fill = 1
                 index += 1
 
         self.fill_count = index
-
-    def _has_feature_property_bags(self):
-        # Check for any format properties that require a feature bag. Currently
-        # this only applies to checkboxes.
-        if not self.feature_property_bags:
-            for xf_format in self.formats:
-                if xf_format.checkbox:
-                    self.feature_property_bags.add("XFComplements")
-
-                if xf_format.dxf_index is not None and xf_format.checkbox:
-                    self.feature_property_bags.add("DXFComplements")
-
-        return self.feature_property_bags
 
     def _prepare_defined_names(self):
         # Iterate through the worksheets and store any defined names in
@@ -1216,21 +1176,12 @@ class Workbook(xmlwriter.XMLwriter):
     def _prepare_drawings(self):
         # Iterate through the worksheets and set up chart and image drawings.
         chart_ref_id = 0
+        image_ref_id = 0
         ref_id = 0
         drawing_id = 0
         image_ids = {}
         header_image_ids = {}
         background_ids = {}
-
-        # Store the image types for any embedded images.
-        for image in self.embedded_images.images:
-            image_extension = image._image_extension
-            self.image_types[image_extension] = True
-
-            if image.description is not None:
-                self.has_embedded_descriptions = True
-
-        image_ref_id = len(self.embedded_images.images)
 
         for sheet in self.worksheets():
             chart_count = len(sheet.charts)
@@ -1259,42 +1210,66 @@ class Workbook(xmlwriter.XMLwriter):
 
             # Prepare the background images.
             if sheet.background_image:
-                image = sheet.background_image
-                image_extension = image._image_extension
-                image_digest = image._digest
+                if sheet.background_bytes:
+                    filename = ""
+                    image_data = sheet.background_image
+                else:
+                    filename = sheet.background_image
+                    image_data = None
 
-                self.image_types[image_extension] = True
+                (
+                    image_type,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    digest,
+                ) = self._get_image_properties(filename, image_data)
 
-                if image_digest in background_ids:
-                    ref_id = background_ids[image_digest]
+                if digest in background_ids:
+                    ref_id = background_ids[digest]
                 else:
                     image_ref_id += 1
                     ref_id = image_ref_id
-                    background_ids[image_digest] = image_ref_id
-                    self.images.append(image)
+                    background_ids[digest] = image_ref_id
+                    self.images.append([filename, image_type, image_data])
 
-                sheet._prepare_background(ref_id, image_extension)
+                sheet._prepare_background(ref_id, image_type)
 
             # Prepare the worksheet images.
             for index in range(image_count):
-                image = sheet.images[index]
-                image_extension = image._image_extension
-                image_digest = image._digest
+                filename = sheet.images[index][2]
+                image_data = sheet.images[index][10]
+                (
+                    image_type,
+                    width,
+                    height,
+                    name,
+                    x_dpi,
+                    y_dpi,
+                    digest,
+                ) = self._get_image_properties(filename, image_data)
 
-                self.image_types[image_extension] = True
-
-                if image_digest in image_ids:
-                    ref_id = image_ids[image_digest]
+                if digest in image_ids:
+                    ref_id = image_ids[digest]
                 else:
                     image_ref_id += 1
                     ref_id = image_ref_id
-                    image_ids[image_digest] = image_ref_id
-                    self.images.append(image)
+                    image_ids[digest] = image_ref_id
+                    self.images.append([filename, image_type, image_data])
 
                 sheet._prepare_image(
-                    image,
+                    index,
                     ref_id,
                     drawing_id,
+                    width,
+                    height,
+                    name,
+                    image_type,
+                    x_dpi,
+                    y_dpi,
+                    digest,
                 )
 
             # Prepare the worksheet charts.
@@ -1307,38 +1282,76 @@ class Workbook(xmlwriter.XMLwriter):
                 sheet._prepare_shape(index, drawing_id)
 
             # Prepare the header images.
-            for image in sheet.header_images:
-                image_extension = image._image_extension
-                image_digest = image._digest
+            for index in range(header_image_count):
+                filename = sheet.header_images[index][0]
+                image_data = sheet.header_images[index][1]
+                position = sheet.header_images[index][2]
 
-                self.image_types[image_extension] = True
+                (
+                    image_type,
+                    width,
+                    height,
+                    name,
+                    x_dpi,
+                    y_dpi,
+                    digest,
+                ) = self._get_image_properties(filename, image_data)
 
-                if image_digest in header_image_ids:
-                    ref_id = header_image_ids[image_digest]
+                if digest in header_image_ids:
+                    ref_id = header_image_ids[digest]
                 else:
                     image_ref_id += 1
                     ref_id = image_ref_id
-                    header_image_ids[image_digest] = image_ref_id
-                    self.images.append(image)
+                    header_image_ids[digest] = image_ref_id
+                    self.images.append([filename, image_type, image_data])
 
-                sheet._prepare_header_image(ref_id, image)
+                sheet._prepare_header_image(
+                    ref_id,
+                    width,
+                    height,
+                    name,
+                    image_type,
+                    position,
+                    x_dpi,
+                    y_dpi,
+                    digest,
+                )
 
             # Prepare the footer images.
-            for image in sheet.footer_images:
-                image_extension = image._image_extension
-                image_digest = image._digest
+            for index in range(footer_image_count):
+                filename = sheet.footer_images[index][0]
+                image_data = sheet.footer_images[index][1]
+                position = sheet.footer_images[index][2]
 
-                self.image_types[image_extension] = True
+                (
+                    image_type,
+                    width,
+                    height,
+                    name,
+                    x_dpi,
+                    y_dpi,
+                    digest,
+                ) = self._get_image_properties(filename, image_data)
 
-                if image_digest in header_image_ids:
-                    ref_id = header_image_ids[image_digest]
+                if digest in header_image_ids:
+                    ref_id = header_image_ids[digest]
                 else:
                     image_ref_id += 1
                     ref_id = image_ref_id
-                    header_image_ids[image_digest] = image_ref_id
-                    self.images.append(image)
+                    header_image_ids[digest] = image_ref_id
+                    self.images.append([filename, image_type, image_data])
 
-                sheet._prepare_header_image(ref_id, image)
+                sheet._prepare_header_image(
+                    ref_id,
+                    width,
+                    height,
+                    name,
+                    image_type,
+                    position,
+                    x_dpi,
+                    y_dpi,
+                    digest,
+                )
 
             if has_drawing:
                 drawing = sheet.drawing
@@ -1354,6 +1367,246 @@ class Workbook(xmlwriter.XMLwriter):
         self.charts = sorted(self.charts, key=lambda chart: chart.id)
 
         self.drawing_count = drawing_id
+
+    def _get_image_properties(self, filename, image_data):
+        # Extract dimension information from the image file.
+        height = 0
+        width = 0
+        x_dpi = 96
+        y_dpi = 96
+
+        if not image_data:
+            # Open the image file and read in the data.
+            fh = open(filename, "rb")
+            data = fh.read()
+        else:
+            # Read the image data from the user supplied byte stream.
+            data = image_data.getvalue()
+
+        digest = hashlib.sha256(data).hexdigest()
+
+        # Get the image filename without the path.
+        image_name = os.path.basename(filename)
+
+        # Look for some common image file markers.
+        marker1 = unpack("3s", data[1:4])[0]
+        marker2 = unpack(">H", data[:2])[0]
+        marker3 = unpack("2s", data[:2])[0]
+        marker4 = unpack("<L", data[:4])[0]
+        marker5 = (unpack("4s", data[40:44]))[0]
+        marker6 = unpack("4s", data[:4])[0]
+
+        png_marker = b"PNG"
+        bmp_marker = b"BM"
+        emf_marker = b" EMF"
+        gif_marker = b"GIF8"
+
+        if marker1 == png_marker:
+            self.image_types["png"] = True
+            (image_type, width, height, x_dpi, y_dpi) = self._process_png(data)
+
+        elif marker2 == 0xFFD8:
+            self.image_types["jpeg"] = True
+            (image_type, width, height, x_dpi, y_dpi) = self._process_jpg(data)
+
+        elif marker3 == bmp_marker:
+            self.image_types["bmp"] = True
+            (image_type, width, height) = self._process_bmp(data)
+
+        elif marker4 == 0x9AC6CDD7:
+            self.image_types["wmf"] = True
+            (image_type, width, height, x_dpi, y_dpi) = self._process_wmf(data)
+
+        elif marker4 == 1 and marker5 == emf_marker:
+            self.image_types["emf"] = True
+            (image_type, width, height, x_dpi, y_dpi) = self._process_emf(data)
+
+        elif marker6 == gif_marker:
+            self.image_types["gif"] = True
+            (image_type, width, height, x_dpi, y_dpi) = self._process_gif(data)
+
+        else:
+            raise UnsupportedImageFormat(
+                "%s: Unknown or unsupported image file format." % filename
+            )
+
+        # Check that we found the required data.
+        if not height or not width:
+            raise UndefinedImageSize("%s: no size data found in image file." % filename)
+
+        if not image_data:
+            fh.close()
+
+        # Set a default dpi for images with 0 dpi.
+        if x_dpi == 0:
+            x_dpi = 96
+        if y_dpi == 0:
+            y_dpi = 96
+
+        return image_type, width, height, image_name, x_dpi, y_dpi, digest
+
+    def _process_png(self, data):
+        # Extract width and height information from a PNG file.
+        offset = 8
+        data_length = len(data)
+        end_marker = False
+        width = 0
+        height = 0
+        x_dpi = 96
+        y_dpi = 96
+
+        # Search through the image data to read the height and width in the
+        # IHDR element. Also read the DPI in the pHYs element.
+        while not end_marker and offset < data_length:
+            length = unpack(">I", data[offset + 0 : offset + 4])[0]
+            marker = unpack("4s", data[offset + 4 : offset + 8])[0]
+
+            # Read the image dimensions.
+            if marker == b"IHDR":
+                width = unpack(">I", data[offset + 8 : offset + 12])[0]
+                height = unpack(">I", data[offset + 12 : offset + 16])[0]
+
+            # Read the image DPI.
+            if marker == b"pHYs":
+                x_density = unpack(">I", data[offset + 8 : offset + 12])[0]
+                y_density = unpack(">I", data[offset + 12 : offset + 16])[0]
+                units = unpack("b", data[offset + 16 : offset + 17])[0]
+
+                if units == 1:
+                    x_dpi = x_density * 0.0254
+                    y_dpi = y_density * 0.0254
+
+            if marker == b"IEND":
+                end_marker = True
+                continue
+
+            offset = offset + length + 12
+
+        return "png", width, height, x_dpi, y_dpi
+
+    def _process_jpg(self, data):
+        # Extract width and height information from a JPEG file.
+        offset = 2
+        data_length = len(data)
+        end_marker = False
+        width = 0
+        height = 0
+        x_dpi = 96
+        y_dpi = 96
+
+        # Search through the image data to read the JPEG markers.
+        while not end_marker and offset < data_length:
+            marker = unpack(">H", data[offset + 0 : offset + 2])[0]
+            length = unpack(">H", data[offset + 2 : offset + 4])[0]
+
+            # Read the height and width in the 0xFFCn elements (except C4, C8
+            # and CC which aren't SOF markers).
+            if (
+                (marker & 0xFFF0) == 0xFFC0
+                and marker != 0xFFC4
+                and marker != 0xFFC8
+                and marker != 0xFFCC
+            ):
+                height = unpack(">H", data[offset + 5 : offset + 7])[0]
+                width = unpack(">H", data[offset + 7 : offset + 9])[0]
+
+            # Read the DPI in the 0xFFE0 element.
+            if marker == 0xFFE0:
+                units = unpack("b", data[offset + 11 : offset + 12])[0]
+                x_density = unpack(">H", data[offset + 12 : offset + 14])[0]
+                y_density = unpack(">H", data[offset + 14 : offset + 16])[0]
+
+                if units == 1:
+                    x_dpi = x_density
+                    y_dpi = y_density
+
+                if units == 2:
+                    x_dpi = x_density * 2.54
+                    y_dpi = y_density * 2.54
+
+                # Workaround for incorrect dpi.
+                if x_dpi == 1:
+                    x_dpi = 96
+                if y_dpi == 1:
+                    y_dpi = 96
+
+            if marker == 0xFFDA:
+                end_marker = True
+                continue
+
+            offset = offset + length + 2
+
+        return "jpeg", width, height, x_dpi, y_dpi
+
+    def _process_gif(self, data):
+        # Extract width and height information from a GIF file.
+        x_dpi = 96
+        y_dpi = 96
+
+        width = unpack("<h", data[6:8])[0]
+        height = unpack("<h", data[8:10])[0]
+
+        return "gif", width, height, x_dpi, y_dpi
+
+    def _process_bmp(self, data):
+        # Extract width and height information from a BMP file.
+        width = unpack("<L", data[18:22])[0]
+        height = unpack("<L", data[22:26])[0]
+        return "bmp", width, height
+
+    def _process_wmf(self, data):
+        # Extract width and height information from a WMF file.
+        x_dpi = 96
+        y_dpi = 96
+
+        # Read the bounding box, measured in logical units.
+        x1 = unpack("<h", data[6:8])[0]
+        y1 = unpack("<h", data[8:10])[0]
+        x2 = unpack("<h", data[10:12])[0]
+        y2 = unpack("<h", data[12:14])[0]
+
+        # Read the number of logical units per inch. Used to scale the image.
+        inch = unpack("<H", data[14:16])[0]
+
+        # Convert to rendered height and width.
+        width = float((x2 - x1) * x_dpi) / inch
+        height = float((y2 - y1) * y_dpi) / inch
+
+        return "wmf", width, height, x_dpi, y_dpi
+
+    def _process_emf(self, data):
+        # Extract width and height information from a EMF file.
+
+        # Read the bounding box, measured in logical units.
+        bound_x1 = unpack("<l", data[8:12])[0]
+        bound_y1 = unpack("<l", data[12:16])[0]
+        bound_x2 = unpack("<l", data[16:20])[0]
+        bound_y2 = unpack("<l", data[20:24])[0]
+
+        # Convert the bounds to width and height.
+        width = bound_x2 - bound_x1
+        height = bound_y2 - bound_y1
+
+        # Read the rectangular frame in units of 0.01mm.
+        frame_x1 = unpack("<l", data[24:28])[0]
+        frame_y1 = unpack("<l", data[28:32])[0]
+        frame_x2 = unpack("<l", data[32:36])[0]
+        frame_y2 = unpack("<l", data[36:40])[0]
+
+        # Convert the frame bounds to mm width and height.
+        width_mm = 0.01 * (frame_x2 - frame_x1)
+        height_mm = 0.01 * (frame_y2 - frame_y1)
+
+        # Get the dpi based on the logical size.
+        x_dpi = width * 25.4 / width_mm
+        y_dpi = height * 25.4 / height_mm
+
+        # This is to match Excel's calculation. It is probably to account for
+        # the fact that the bounding box is inclusive-inclusive. Or a bug.
+        width += 1
+        height += 1
+
+        return "emf", width, height, x_dpi, y_dpi
 
     def _extract_named_ranges(self, defined_names):
         # Extract the named ranges from the sorted list of defined names.
@@ -1390,8 +1643,8 @@ class Workbook(xmlwriter.XMLwriter):
 
         if sheetname in self.sheetnames:
             return self.sheetnames[sheetname].index
-
-        return None
+        else:
+            return None
 
     def _prepare_vml(self):
         # Iterate through the worksheets and set up the VML objects.
@@ -1449,13 +1702,9 @@ class Workbook(xmlwriter.XMLwriter):
 
     def _prepare_metadata(self):
         # Set the metadata rel link.
-        self.has_embedded_images = self.embedded_images.has_images()
-        self.has_metadata = self.has_embedded_images
-
         for sheet in self.worksheets():
             if sheet.has_dynamic_arrays:
                 self.has_metadata = True
-                self.has_dynamic_functions = True
 
     def _add_chart_data(self):
         # Add "cached" data to charts to provide the numCache and strCache
@@ -1509,8 +1758,8 @@ class Workbook(xmlwriter.XMLwriter):
                 # in a chart series formula.
                 if sheetname not in worksheets:
                     warn(
-                        f"Unknown worksheet reference '{sheetname}' in range "
-                        f"'{c_range}' passed to add_series()"
+                        "Unknown worksheet reference '%s' in range "
+                        "'%s' passed to add_series()" % (sheetname, c_range)
                     )
                     chart.formula_data[r_id] = []
                     seen_ranges[c_range] = []
@@ -1684,10 +1933,8 @@ class Workbook(xmlwriter.XMLwriter):
             ("sheetId", sheet_id),
         ]
 
-        if hidden == 1:
+        if hidden:
             attributes.append(("state", "hidden"))
-        elif hidden == 2:
-            attributes.append(("state", "veryHidden"))
 
         attributes.append(("r:id", "rId" + str(sheet_id)))
 
@@ -1738,7 +1985,7 @@ class Workbook(xmlwriter.XMLwriter):
 
 
 # A metadata class to share data between worksheets.
-class WorksheetMeta:
+class WorksheetMeta(object):
     """
     A class to track worksheets data such as the active sheet and the
     first sheet.
@@ -1748,48 +1995,3 @@ class WorksheetMeta:
     def __init__(self):
         self.activesheet = 0
         self.firstsheet = 0
-
-
-# A helper class to share embedded images between worksheets.
-class EmbeddedImages:
-    """
-    A class to track duplicate embedded images between worksheets.
-
-    """
-
-    def __init__(self):
-        self.images = []
-        self.image_indexes = {}
-
-    def get_image_index(self, image: Image):
-        """
-        Get the index of an embedded image.
-
-        Args:
-            image: The image to lookup.
-
-        Returns:
-            The image index.
-
-        """
-        image_index = self.image_indexes.get(image._digest)
-
-        if image_index is None:
-            self.images.append(image)
-            image_index = len(self.images)
-            self.image_indexes[image._digest] = image_index
-
-        return image_index
-
-    def has_images(self):
-        """
-        Check if the worksheet has embedded images.
-
-        Args:
-            None.
-
-        Returns:
-            Boolean.
-
-        """
-        return len(self.images) > 0

@@ -3,12 +3,10 @@
 # App - A class for writing the Excel XLSX App file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
-from typing import Dict, List, Tuple
-
+# Package imports.
 from . import xmlwriter
 
 
@@ -31,18 +29,18 @@ class App(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(App, self).__init__()
 
         self.part_names = []
         self.heading_pairs = []
         self.properties = {}
         self.doc_security = 0
 
-    def _add_part_name(self, part_name: str):
+    def _add_part_name(self, part_name):
         # Add the name of a workbook Part such as 'Sheet1' or 'Print_Titles'.
         self.part_names.append(part_name)
 
-    def _add_heading_pair(self, heading_pair: Tuple[str, int]):
+    def _add_heading_pair(self, heading_pair):
         # Add the name of a workbook Heading Pair such as 'Worksheets',
         # 'Charts' or 'Named Ranges'.
 
@@ -53,7 +51,7 @@ class App(xmlwriter.XMLwriter):
         self.heading_pairs.append(("lpstr", heading_pair[0]))
         self.heading_pairs.append(("i4", heading_pair[1]))
 
-    def _set_properties(self, properties: Dict[str, str]):
+    def _set_properties(self, properties):
         # Set the document properties.
         self.properties = properties
 
@@ -138,7 +136,7 @@ class App(xmlwriter.XMLwriter):
 
         self._xml_end_tag("TitlesOfParts")
 
-    def _write_vt_vector(self, base_type: str, vector_data: List[Tuple[str, int]]):
+    def _write_vt_vector(self, base_type, vector_data):
         # Write the <vt:vector> element.
         attributes = [
             ("size", len(vector_data)),
@@ -158,9 +156,9 @@ class App(xmlwriter.XMLwriter):
 
         self._xml_end_tag("vt:vector")
 
-    def _write_vt_data(self, vt_data: Tuple[str, int]):
+    def _write_vt_data(self, vt_data):
         # Write the <vt:*> elements such as <vt:lpstr> and <vt:if>.
-        self._xml_data_element(f"vt:{vt_data[0]}", vt_data[1])
+        self._xml_data_element("vt:%s" % vt_data[0], vt_data[1])
 
     def _write_company(self):
         company = self.properties.get("company", "")

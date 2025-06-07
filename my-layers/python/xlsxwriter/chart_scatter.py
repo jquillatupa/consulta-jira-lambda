@@ -3,13 +3,11 @@
 # ChartScatter - A class for writing the Excel XLSX Scatter charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
-#
-
-from warnings import warn
 
 from . import chart
+from warnings import warn
 
 
 class ChartScatter(chart.Chart):
@@ -30,7 +28,7 @@ class ChartScatter(chart.Chart):
         Constructor.
 
         """
-        super().__init__()
+        super(ChartScatter, self).__init__()
 
         if options is None:
             options = {}
@@ -60,7 +58,6 @@ class ChartScatter(chart.Chart):
         }
 
     def combine(self, chart=None):
-        # pylint: disable=redefined-outer-name
         """
         Create a combination chart with a secondary chart.
 
@@ -106,7 +103,7 @@ class ChartScatter(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         style = "lineMarker"

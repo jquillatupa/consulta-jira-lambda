@@ -1,16 +1,13 @@
-import importlib
-import sys
+from typing import Sequence, Iterable, Optional, Dict, Callable, List, Any
+from thinc.api import Model, set_dropout_rate, Optimizer, Config
 from itertools import islice
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from thinc.api import Config, Model, Optimizer, set_dropout_rate
-
-from ..errors import Errors
-from ..language import Language
-from ..tokens import Doc
-from ..training import Example, validate_examples, validate_get_examples
-from ..vocab import Vocab
 from .trainable_pipe import TrainablePipe
+from ..training import Example, validate_examples, validate_get_examples
+from ..tokens import Doc
+from ..vocab import Vocab
+from ..language import Language
+from ..errors import Errors
 
 default_model_config = """
 [model]
@@ -24,6 +21,13 @@ maxout_pieces = 3
 subword_features = true
 """
 DEFAULT_TOK2VEC_MODEL = Config().from_str(default_model_config)["model"]
+
+
+@Language.factory(
+    "tok2vec", assigns=["doc.tensor"], default_config={"model": DEFAULT_TOK2VEC_MODEL}
+)
+def make_tok2vec(nlp: Language, name: str, model: Model) -> "Tok2Vec":
+    return Tok2Vec(nlp.vocab, model, name)
 
 
 class Tok2Vec(TrainablePipe):
@@ -315,11 +319,3 @@ def forward(model: Tok2VecListener, inputs, is_train: bool):
 
 def _empty_backprop(dX):  # for pickling
     return []
-
-
-# Setup backwards compatibility hook for factories
-def __getattr__(name):
-    if name == "make_tok2vec":
-        module = importlib.import_module("spacy.pipeline.factories")
-        return module.make_tok2vec
-    raise AttributeError(f"module {__name__} has no attribute {name}")

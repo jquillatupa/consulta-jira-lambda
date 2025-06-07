@@ -1,62 +1,37 @@
-import functools
+from typing import List, Mapping, NoReturn, Union, Dict, Any, Set, cast
+from typing import Optional, Iterable, Callable, Tuple, Type
+from typing import Iterator, Pattern, Generator, TYPE_CHECKING
+from types import ModuleType
+import os
 import importlib
 import importlib.util
-import inspect
-import itertools
-import logging
-import os
-import pkgutil
 import re
-import shlex
-import shutil
-import socket
-import stat
-import subprocess
-import sys
-import tempfile
-import warnings
-from collections import defaultdict
-from contextlib import contextmanager
 from pathlib import Path
-from types import ModuleType
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterable,
-    Iterator,
-    List,
-    Mapping,
-    NoReturn,
-    Optional,
-    Pattern,
-    Set,
-    Tuple,
-    Type,
-    Union,
-    cast,
-)
-
-import catalogue
-import langcodes
+import thinc
+from thinc.api import NumpyOps, get_current_ops, Adam, Config, Optimizer
+from thinc.api import ConfigValidationError, Model
+import functools
+import itertools
 import numpy
 import srsly
-import thinc
-from catalogue import Registry, RegistryError
+import catalogue
+from catalogue import RegistryError, Registry
+import langcodes
+import sys
+import warnings
+from packaging.specifiers import SpecifierSet, InvalidSpecifier
+from packaging.version import Version, InvalidVersion
 from packaging.requirements import Requirement
-from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import InvalidVersion, Version
-from thinc.api import (
-    Adam,
-    Config,
-    ConfigValidationError,
-    Model,
-    NumpyOps,
-    Optimizer,
-    get_current_ops,
-)
+import subprocess
+from contextlib import contextmanager
+from collections import defaultdict
+import tempfile
+import shutil
+import shlex
+import inspect
+import pkgutil
+import logging
+import socket
 
 try:
     import cupy.random
@@ -67,12 +42,13 @@ except ImportError:
 # and have since moved to Thinc. We're importing them here so people's code
 # doesn't break, but they should always be imported from Thinc from now on,
 # not from spacy.util.
-from thinc.api import compounding, decaying, fix_random_seed  # noqa: F401
+from thinc.api import fix_random_seed, compounding, decaying  # noqa: F401
 
-from . import about
-from .compat import CudaStream, cupy, importlib_metadata, is_windows
-from .errors import OLD_MODEL_SHORTCUTS, Errors, Warnings
+
 from .symbols import ORTH
+from .compat import cupy, CudaStream, is_windows, importlib_metadata
+from .errors import Errors, Warnings, OLD_MODEL_SHORTCUTS
+from . import about
 
 if TYPE_CHECKING:
     # This lets us add type hints for mypy etc. without causing circular imports
@@ -84,7 +60,7 @@ if TYPE_CHECKING:
 # fmt: off
 OOV_RANK = numpy.iinfo(numpy.uint64).max
 DEFAULT_OOV_PROB = -20
-LEXEME_NORM_LANGS = ["cs", "da", "de", "el", "en", "grc", "id", "lb", "mk", "pt", "ru", "sr", "ta", "th"]
+LEXEME_NORM_LANGS = ["cs", "da", "de", "el", "en", "id", "lb", "mk", "pt", "ru", "sr", "ta", "th"]
 
 # Default order of sections in the config file. Not all sections needs to exist,
 # and additional sections are added at the end, in alphabetical order.
@@ -101,6 +77,7 @@ logger.addHandler(logger_stream_handler)
 
 class ENV_VARS:
     CONFIG_OVERRIDES = "SPACY_CONFIG_OVERRIDES"
+    PROJECT_USE_GIT_VERSION = "SPACY_PROJECT_USE_GIT_VERSION"
 
 
 class registry(thinc.registry):
@@ -118,7 +95,6 @@ class registry(thinc.registry):
     augmenters = catalogue.create("spacy", "augmenters", entry_points=True)
     loggers = catalogue.create("spacy", "loggers", entry_points=True)
     scorers = catalogue.create("spacy", "scorers", entry_points=True)
-    vectors = catalogue.create("spacy", "vectors", entry_points=True)
     # These are factories registered via third-party packages and the
     # spacy_factories entry point. This registry only exists so we can easily
     # load them via the entry points. The "true" factories are added via the
@@ -133,17 +109,8 @@ class registry(thinc.registry):
     cli = catalogue.create("spacy", "cli", entry_points=True)
 
     @classmethod
-    def ensure_populated(cls) -> None:
-        """Ensure the registry is populated with all necessary components."""
-        from .registrations import REGISTRY_POPULATED, populate_registry
-
-        if not REGISTRY_POPULATED:
-            populate_registry()
-
-    @classmethod
     def get_registry_names(cls) -> List[str]:
         """List all available registries."""
-        cls.ensure_populated()
         names = []
         for name, value in inspect.getmembers(cls):
             if not name.startswith("_") and isinstance(value, Registry):
@@ -153,7 +120,6 @@ class registry(thinc.registry):
     @classmethod
     def get(cls, registry_name: str, func_name: str) -> Callable:
         """Get a registered function from the registry."""
-        cls.ensure_populated()
         # We're overwriting this classmethod so we're able to provide more
         # specific error messages and implement a fallback to spacy-legacy.
         if not hasattr(cls, registry_name):
@@ -178,18 +144,8 @@ class registry(thinc.registry):
         return func
 
     @classmethod
-    def find(
-        cls, registry_name: str, func_name: str
-    ) -> Dict[str, Optional[Union[str, int]]]:
-        """Find information about a registered function, including the
-        module and path to the file it's defined in, the line number and the
-        docstring, if available.
-
-        registry_name (str): Name of the catalogue registry.
-        func_name (str): Name of the registered function.
-        RETURNS (Dict[str, Optional[Union[str, int]]]): The function info.
-        """
-        cls.ensure_populated()
+    def find(cls, registry_name: str, func_name: str) -> Callable:
+        """Get info about a registered function from the registry."""
         # We're overwriting this classmethod so we're able to provide more
         # specific error messages and implement a fallback to spacy-legacy.
         if not hasattr(cls, registry_name):
@@ -216,7 +172,6 @@ class registry(thinc.registry):
     @classmethod
     def has(cls, registry_name: str, func_name: str) -> bool:
         """Check whether a function is available in a registry."""
-        cls.ensure_populated()
         if not hasattr(cls, registry_name):
             return False
         reg = getattr(cls, registry_name)
@@ -546,7 +501,7 @@ def load_model_from_path(
     if not meta:
         meta = get_model_meta(model_path)
     config_path = model_path / "config.cfg"
-    overrides = dict_to_dot(config, for_overrides=True)
+    overrides = dict_to_dot(config)
     config = load_config(config_path, overrides=overrides)
     nlp = load_model_from_config(
         config,
@@ -906,7 +861,7 @@ def load_meta(path: Union[str, Path]) -> Dict[str, Any]:
     if "spacy_version" in meta:
         if not is_compatible_version(about.__version__, meta["spacy_version"]):
             lower_version = get_model_lower_version(meta["spacy_version"])
-            lower_version = get_base_version(lower_version)  # type: ignore[arg-type]
+            lower_version = get_minor_version(lower_version)  # type: ignore[arg-type]
             if lower_version is not None:
                 lower_version = "v" + lower_version
             elif "spacy_git_version" in meta:
@@ -986,10 +941,21 @@ def replace_model_node(model: Model, target: Model, replacement: Model) -> None:
 
 def split_command(command: str) -> List[str]:
     """Split a string command using shlex. Handles platform compatibility.
+
     command (str) : The command to split
     RETURNS (List[str]): The split command.
     """
     return shlex.split(command, posix=not is_windows)
+
+
+def join_command(command: List[str]) -> str:
+    """Join a command using shlex. shlex.join is only available for Python 3.8+,
+    so we're using a workaround here.
+
+    command (List[str]): The command to join.
+    RETURNS (str): The joined command
+    """
+    return " ".join(shlex.quote(cmd) for cmd in command)
 
 
 def run_command(
@@ -1000,6 +966,7 @@ def run_command(
 ) -> subprocess.CompletedProcess:
     """Run a command on the command line as a subprocess. If the subprocess
     returns a non-zero exit code, a system exit is performed.
+
     command (str / List[str]): The command. If provided as a string, the
         string will be split using shlex.split.
     stdin (Optional[Any]): stdin to read from or None.
@@ -1050,6 +1017,7 @@ def run_command(
 @contextmanager
 def working_dir(path: Union[str, Path]) -> Iterator[Path]:
     """Change current working directory and returns to previous on exit.
+
     path (str / Path): The directory to navigate to.
     YIELDS (Path): The absolute path to the current working directory. This
         should be used if the block needs to perform actions within the working
@@ -1068,57 +1036,39 @@ def working_dir(path: Union[str, Path]) -> Iterator[Path]:
 def make_tempdir() -> Generator[Path, None, None]:
     """Execute a block in a temporary directory and remove the directory and
     its contents at the end of the with block.
+
     YIELDS (Path): The path of the temp directory.
     """
     d = Path(tempfile.mkdtemp())
     yield d
-
-    # On Windows, git clones use read-only files, which cause permission errors
-    # when being deleted. This forcibly fixes permissions.
-    def force_remove(rmfunc, path, ex):
-        os.chmod(path, stat.S_IWRITE)
-        rmfunc(path)
-
     try:
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(str(d), onexc=force_remove)
-        else:
-            shutil.rmtree(str(d), onerror=force_remove)
+        shutil.rmtree(str(d))
     except PermissionError as e:
         warnings.warn(Warnings.W091.format(dir=d, msg=e))
 
 
+def is_cwd(path: Union[Path, str]) -> bool:
+    """Check whether a path is the current working directory.
+
+    path (Union[Path, str]): The directory path.
+    RETURNS (bool): Whether the path is the current working directory.
+    """
+    return str(Path(path).resolve()).lower() == str(Path.cwd().resolve()).lower()
+
+
 def is_in_jupyter() -> bool:
-    """Check if user is running spaCy from a Jupyter or Colab notebook by
-    detecting the IPython kernel. Mainly used for the displaCy visualizer.
-    RETURNS (bool): True if in Jupyter/Colab, False if not.
+    """Check if user is running spaCy from a Jupyter notebook by detecting the
+    IPython kernel. Mainly used for the displaCy visualizer.
+    RETURNS (bool): True if in Jupyter, False if not.
     """
     # https://stackoverflow.com/a/39662359/6400719
-    # https://stackoverflow.com/questions/15411967
     try:
-        if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore[name-defined]
+        shell = get_ipython().__class__.__name__  # type: ignore[name-defined]
+        if shell == "ZMQInteractiveShell":
             return True  # Jupyter notebook or qtconsole
-        if get_ipython().__class__.__module__ == "google.colab._shell":  # type: ignore[name-defined]
-            return True  # Colab notebook
     except NameError:
-        pass  # Probably standard Python interpreter
-    # additional check for Colab
-    try:
-        import google.colab
-
-        return True  # Colab notebook
-    except ImportError:
-        pass
+        return False  # Probably standard Python interpreter
     return False
-
-
-def is_in_interactive() -> bool:
-    """Check if user is running spaCy from an interactive Python
-    shell. Will return True in Jupyter notebooks too.
-    RETURNS (bool): True if in interactive mode, False if not.
-    """
-    # https://stackoverflow.com/questions/2356399/tell-if-python-is-in-interactive-mode
-    return hasattr(sys, "ps1") or hasattr(sys, "ps2")
 
 
 def get_object_name(obj: Any) -> str:
@@ -1335,6 +1285,7 @@ def filter_chain_spans(*spans: Iterable["Span"]) -> List["Span"]:
     return filter_spans(itertools.chain(*spans))
 
 
+@registry.misc("spacy.first_longest_spans_filter.v1")
 def make_first_longest_spans_filter():
     return filter_chain_spans
 
@@ -1511,19 +1462,14 @@ def dot_to_dict(values: Dict[str, Any]) -> Dict[str, dict]:
     return result
 
 
-def dict_to_dot(obj: Dict[str, dict], *, for_overrides: bool = False) -> Dict[str, Any]:
+def dict_to_dot(obj: Dict[str, dict]) -> Dict[str, Any]:
     """Convert dot notation to a dict. For example: {"token": {"pos": True,
     "_": {"xyz": True }}} becomes {"token.pos": True, "token._.xyz": True}.
 
-    obj (Dict[str, dict]): The dict to convert.
-    for_overrides (bool): Whether to enable special handling for registered
-        functions in overrides.
+    values (Dict[str, dict]): The dict to convert.
     RETURNS (Dict[str, Any]): The key/value pairs.
     """
-    return {
-        ".".join(key): value
-        for key, value in walk_dict(obj, for_overrides=for_overrides)
-    }
+    return {".".join(key): value for key, value in walk_dict(obj)}
 
 
 def dot_to_object(config: Config, section: str):
@@ -1565,20 +1511,13 @@ def set_dot_to_object(config: Config, section: str, value: Any) -> None:
 
 
 def walk_dict(
-    node: Dict[str, Any], parent: List[str] = [], *, for_overrides: bool = False
+    node: Dict[str, Any], parent: List[str] = []
 ) -> Iterator[Tuple[List[str], Any]]:
-    """Walk a dict and yield the path and values of the leaves.
-
-    for_overrides (bool): Whether to treat registered functions that start with
-        @ as final values rather than dicts to traverse.
-    """
+    """Walk a dict and yield the path and values of the leaves."""
     for key, value in node.items():
         key_parent = [*parent, key]
-        if isinstance(value, dict) and (
-            not for_overrides
-            or not any(value_key.startswith("@") for value_key in value)
-        ):
-            yield from walk_dict(value, key_parent, for_overrides=for_overrides)
+        if isinstance(value, dict):
+            yield from walk_dict(value, key_parent)
         else:
             yield (key_parent, value)
 

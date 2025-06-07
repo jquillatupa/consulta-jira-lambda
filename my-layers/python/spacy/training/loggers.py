@@ -1,14 +1,13 @@
-import sys
-from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
-
-import srsly
-import tqdm
+from typing import TYPE_CHECKING, Dict, Any, Tuple, Callable, List, Optional, IO, Union
 from wasabi import Printer
+from pathlib import Path
+import tqdm
+import sys
+import srsly
 
-from .. import util
-from ..errors import Errors
 from ..util import registry
+from ..errors import Errors
+from .. import util
 
 if TYPE_CHECKING:
     from ..language import Language  # noqa: F401
@@ -29,6 +28,7 @@ def setup_table(
 
 # We cannot rename this method as it's directly imported
 # and used by external packages such as spacy-loggers.
+@registry.loggers("spacy.ConsoleLogger.v2")
 def console_logger(
     progress_bar: bool = False,
     console_output: bool = True,
@@ -46,6 +46,7 @@ def console_logger(
     )
 
 
+@registry.loggers("spacy.ConsoleLogger.v3")
 def console_logger_v3(
     progress_bar: Optional[str] = None,
     console_output: bool = True,

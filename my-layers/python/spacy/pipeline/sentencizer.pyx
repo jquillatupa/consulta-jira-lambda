@@ -1,19 +1,32 @@
-# cython: infer_types=True, binding=True
-import importlib
-import sys
-from typing import Callable, List, Optional
-
+# cython: infer_types=True, profile=True, binding=True
+from typing import Optional, List, Callable
 import srsly
 
 from ..tokens.doc cimport Doc
 
-from .. import util
-from ..language import Language
 from .pipe import Pipe
 from .senter import senter_score
+from ..language import Language
+from ..scorer import Scorer
+from .. import util
 
 # see #9050
 BACKWARD_OVERWRITE = False
+
+@Language.factory(
+    "sentencizer",
+    assigns=["token.is_sent_start", "doc.sents"],
+    default_config={"punct_chars": None, "overwrite": False, "scorer": {"@scorers": "spacy.senter_scorer.v1"}},
+    default_score_weights={"sents_f": 1.0, "sents_p": 0.0, "sents_r": 0.0},
+)
+def make_sentencizer(
+    nlp: Language,
+    name: str,
+    punct_chars: Optional[List[str]],
+    overwrite: bool,
+    scorer: Optional[Callable],
+):
+    return Sentencizer(name, punct_chars=punct_chars, overwrite=overwrite, scorer=scorer)
 
 
 class Sentencizer(Pipe):
@@ -22,19 +35,17 @@ class Sentencizer(Pipe):
     DOCS: https://spacy.io/api/sentencizer
     """
 
-    default_punct_chars = [
-        '!', '.', '?', '։', '؟', '۔', '܀', '܁', '܂', '߹',
-        '।', '॥', '၊', '။', '።', '፧', '፨', '᙮', '᜵', '᜶', '᠃', '᠉', '᥄',
-        '᥅', '᪨', '᪩', '᪪', '᪫', '᭚', '᭛', '᭞', '᭟', '᰻', '᰼', '᱾', '᱿',
-        '‼', '‽', '⁇', '⁈', '⁉', '⸮', '⸼', '꓿', '꘎', '꘏', '꛳', '꛷', '꡶',
-        '꡷', '꣎', '꣏', '꤯', '꧈', '꧉', '꩝', '꩞', '꩟', '꫰', '꫱', '꯫', '﹒',
-        '﹖', '﹗', '！', '．', '？', '𐩖', '𐩗', '𑁇', '𑁈', '𑂾', '𑂿', '𑃀',
-        '𑃁', '𑅁', '𑅂', '𑅃', '𑇅', '𑇆', '𑇍', '𑇞', '𑇟', '𑈸', '𑈹', '𑈻', '𑈼',
-        '𑊩', '𑑋', '𑑌', '𑗂', '𑗃', '𑗉', '𑗊', '𑗋', '𑗌', '𑗍', '𑗎', '𑗏', '𑗐',
-        '𑗑', '𑗒', '𑗓', '𑗔', '𑗕', '𑗖', '𑗗', '𑙁', '𑙂', '𑜼', '𑜽', '𑜾', '𑩂',
-        '𑩃', '𑪛', '𑪜', '𑱁', '𑱂', '𖩮', '𖩯', '𖫵', '𖬷', '𖬸', '𖭄', '𛲟', '𝪈',
-        '｡', '。'
-    ]
+    default_punct_chars = ['!', '.', '?', '։', '؟', '۔', '܀', '܁', '܂', '߹',
+            '।', '॥', '၊', '။', '።', '፧', '፨', '᙮', '᜵', '᜶', '᠃', '᠉', '᥄',
+            '᥅', '᪨', '᪩', '᪪', '᪫', '᭚', '᭛', '᭞', '᭟', '᰻', '᰼', '᱾', '᱿',
+            '‼', '‽', '⁇', '⁈', '⁉', '⸮', '⸼', '꓿', '꘎', '꘏', '꛳', '꛷', '꡶',
+            '꡷', '꣎', '꣏', '꤯', '꧈', '꧉', '꩝', '꩞', '꩟', '꫰', '꫱', '꯫', '﹒',
+            '﹖', '﹗', '！', '．', '？', '𐩖', '𐩗', '𑁇', '𑁈', '𑂾', '𑂿', '𑃀',
+            '𑃁', '𑅁', '𑅂', '𑅃', '𑇅', '𑇆', '𑇍', '𑇞', '𑇟', '𑈸', '𑈹', '𑈻', '𑈼',
+            '𑊩', '𑑋', '𑑌', '𑗂', '𑗃', '𑗉', '𑗊', '𑗋', '𑗌', '𑗍', '𑗎', '𑗏', '𑗐',
+            '𑗑', '𑗒', '𑗓', '𑗔', '𑗕', '𑗖', '𑗗', '𑙁', '𑙂', '𑜼', '𑜽', '𑜾', '𑩂',
+            '𑩃', '𑪛', '𑪜', '𑱁', '𑱂', '𖩮', '𖩯', '𖫵', '𖬷', '𖬸', '𖭄', '𛲟', '𝪈',
+            '｡', '。']
 
     def __init__(
         self,
@@ -116,6 +127,7 @@ class Sentencizer(Pipe):
         if isinstance(docs, Doc):
             docs = [docs]
         cdef Doc doc
+        cdef int idx = 0
         for i, doc in enumerate(docs):
             doc_tag_ids = batch_tag_ids[i]
             for j, tag_id in enumerate(doc_tag_ids):
@@ -156,6 +168,7 @@ class Sentencizer(Pipe):
         path = path.with_suffix(".json")
         srsly.write_json(path, {"punct_chars": list(self.punct_chars), "overwrite": self.overwrite})
 
+
     def from_disk(self, path, *, exclude=tuple()):
         """Load the sentencizer from disk.
 
@@ -167,11 +180,3 @@ class Sentencizer(Pipe):
         self.punct_chars = set(cfg.get("punct_chars", self.default_punct_chars))
         self.overwrite = cfg.get("overwrite", self.overwrite)
         return self
-
-
-# Setup backwards compatibility hook for factories
-def __getattr__(name):
-    if name == "make_sentencizer":
-        module = importlib.import_module("spacy.pipeline.factories")
-        return module.make_sentencizer
-    raise AttributeError(f"module {__name__} has no attribute {name}")

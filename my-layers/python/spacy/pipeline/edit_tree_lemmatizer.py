@@ -1,27 +1,23 @@
-import importlib
-import sys
+from typing import cast, Any, Callable, Dict, Iterable, List, Optional
+from typing import Tuple
 from collections import Counter
 from itertools import islice
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, cast
-
 import numpy as np
-import srsly
-from thinc.api import Config, Model, NumpyOps, SequenceCategoricalCrossentropy
-from thinc.types import Floats2d, Ints2d
 
-from .. import util
+import srsly
+from thinc.api import Config, Model, SequenceCategoricalCrossentropy
+from thinc.types import Floats2d, Ints1d, Ints2d
+
+from ._edit_tree_internals.edit_trees import EditTrees
+from ._edit_tree_internals.schemas import validate_edit_tree
+from .lemmatizer import lemmatizer_score
+from .trainable_pipe import TrainablePipe
 from ..errors import Errors
 from ..language import Language
 from ..tokens import Doc
 from ..training import Example, validate_examples, validate_get_examples
 from ..vocab import Vocab
-from ._edit_tree_internals.edit_trees import EditTrees
-from ._edit_tree_internals.schemas import validate_edit_tree
-from .lemmatizer import lemmatizer_score
-from .trainable_pipe import TrainablePipe
-
-# The cutoff value of *top_k* above which an alternative method is used to process guesses.
-TOP_K_GUARDRAIL = 20
+from .. import util
 
 
 default_model_config = """
@@ -39,6 +35,43 @@ maxout_pieces = 3
 subword_features = true
 """
 DEFAULT_EDIT_TREE_LEMMATIZER_MODEL = Config().from_str(default_model_config)["model"]
+
+
+@Language.factory(
+    "trainable_lemmatizer",
+    assigns=["token.lemma"],
+    requires=[],
+    default_config={
+        "model": DEFAULT_EDIT_TREE_LEMMATIZER_MODEL,
+        "backoff": "orth",
+        "min_tree_freq": 3,
+        "overwrite": False,
+        "top_k": 1,
+        "scorer": {"@scorers": "spacy.lemmatizer_scorer.v1"},
+    },
+    default_score_weights={"lemma_acc": 1.0},
+)
+def make_edit_tree_lemmatizer(
+    nlp: Language,
+    name: str,
+    model: Model,
+    backoff: Optional[str],
+    min_tree_freq: int,
+    overwrite: bool,
+    top_k: int,
+    scorer: Optional[Callable],
+):
+    """Construct an EditTreeLemmatizer component."""
+    return EditTreeLemmatizer(
+        nlp.vocab,
+        model,
+        name,
+        backoff=backoff,
+        min_tree_freq=min_tree_freq,
+        overwrite=overwrite,
+        top_k=top_k,
+        scorer=scorer,
+    )
 
 
 class EditTreeLemmatizer(TrainablePipe):
@@ -82,7 +115,6 @@ class EditTreeLemmatizer(TrainablePipe):
 
         self.cfg: Dict[str, Any] = {"labels": []}
         self.scorer = scorer
-        self.numpy_ops = NumpyOps()
 
     def get_loss(
         self, examples: Iterable[Example], scores: List[Floats2d]
@@ -112,18 +144,6 @@ class EditTreeLemmatizer(TrainablePipe):
         return float(loss), d_scores
 
     def predict(self, docs: Iterable[Doc]) -> List[Ints2d]:
-        if self.top_k == 1:
-            scores2guesses = self._scores2guesses_top_k_equals_1
-        elif self.top_k <= TOP_K_GUARDRAIL:
-            scores2guesses = self._scores2guesses_top_k_greater_1
-        else:
-            scores2guesses = self._scores2guesses_top_k_guardrail
-        # The behaviour of *_scores2guesses_top_k_greater_1()* is efficient for values
-        # of *top_k>1* that are likely to be useful when the edit tree lemmatizer is used
-        # for its principal purpose of lemmatizing tokens. However, the code could also
-        # be used for other purposes, and with very large values of *top_k* the method
-        # becomes inefficient. In such cases, *_scores2guesses_top_k_guardrail()* is used
-        # instead.
         n_docs = len(list(docs))
         if not any(len(doc) for doc in docs):
             # Handle cases where there are no tokens in any docs.
@@ -133,52 +153,20 @@ class EditTreeLemmatizer(TrainablePipe):
             return guesses
         scores = self.model.predict(docs)
         assert len(scores) == n_docs
-        guesses = scores2guesses(docs, scores)
+        guesses = self._scores2guesses(docs, scores)
         assert len(guesses) == n_docs
         return guesses
 
-    def _scores2guesses_top_k_equals_1(self, docs, scores):
+    def _scores2guesses(self, docs, scores):
         guesses = []
         for doc, doc_scores in zip(docs, scores):
-            doc_guesses = doc_scores.argmax(axis=1)
-            doc_guesses = self.numpy_ops.asarray(doc_guesses)
+            if self.top_k == 1:
+                doc_guesses = doc_scores.argmax(axis=1).reshape(-1, 1)
+            else:
+                doc_guesses = np.argsort(doc_scores)[..., : -self.top_k - 1 : -1]
 
-            doc_compat_guesses = []
-            for i, token in enumerate(doc):
-                tree_id = self.cfg["labels"][doc_guesses[i]]
-                if self.trees.apply(tree_id, token.text) is not None:
-                    doc_compat_guesses.append(tree_id)
-                else:
-                    doc_compat_guesses.append(-1)
-            guesses.append(np.array(doc_compat_guesses))
-
-        return guesses
-
-    def _scores2guesses_top_k_greater_1(self, docs, scores):
-        guesses = []
-        top_k = min(self.top_k, len(self.labels))
-        for doc, doc_scores in zip(docs, scores):
-            doc_scores = self.numpy_ops.asarray(doc_scores)
-            doc_compat_guesses = []
-            for i, token in enumerate(doc):
-                for _ in range(top_k):
-                    candidate = int(doc_scores[i].argmax())
-                    candidate_tree_id = self.cfg["labels"][candidate]
-                    if self.trees.apply(candidate_tree_id, token.text) is not None:
-                        doc_compat_guesses.append(candidate_tree_id)
-                        break
-                    doc_scores[i, candidate] = np.finfo(np.float32).min
-                else:
-                    doc_compat_guesses.append(-1)
-            guesses.append(np.array(doc_compat_guesses))
-
-        return guesses
-
-    def _scores2guesses_top_k_guardrail(self, docs, scores):
-        guesses = []
-        for doc, doc_scores in zip(docs, scores):
-            doc_guesses = np.argsort(doc_scores)[..., : -self.top_k - 1 : -1]
-            doc_guesses = self.numpy_ops.asarray(doc_guesses)
+            if not isinstance(doc_guesses, np.ndarray):
+                doc_guesses = doc_guesses.get()
 
             doc_compat_guesses = []
             for token, candidates in zip(doc, doc_guesses):
@@ -386,11 +374,3 @@ class EditTreeLemmatizer(TrainablePipe):
             self.tree2label[tree_id] = len(self.cfg["labels"])
             self.cfg["labels"].append(tree_id)
         return self.tree2label[tree_id]
-
-
-# Setup backwards compatibility hook for factories
-def __getattr__(name):
-    if name == "make_edit_tree_lemmatizer":
-        module = importlib.import_module("spacy.pipeline.factories")
-        return module.make_edit_tree_lemmatizer
-    raise AttributeError(f"module {__name__} has no attribute {name}")

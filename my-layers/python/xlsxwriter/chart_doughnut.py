@@ -3,12 +3,10 @@
 # ChartDoughnut - A class for writing the Excel XLSX Doughnut charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from warnings import warn
-
 from . import chart_pie
 
 
@@ -25,12 +23,12 @@ class ChartDoughnut(chart_pie.ChartPie):
     #
     ###########################################################################
 
-    def __init__(self):
+    def __init__(self, options=None):
         """
         Constructor.
 
         """
-        super().__init__()
+        super(ChartDoughnut, self).__init__()
 
         self.vary_data_color = 1
         self.rotation = 0
@@ -52,7 +50,7 @@ class ChartDoughnut(chart_pie.ChartPie):
 
         # Ensure the size is in Excel's range.
         if size < 10 or size > 90:
-            warn("Chart hole size '{size}' outside Excel range: 10 <= size <= 90")
+            warn("Chart hole size %d outside Excel range: 10 <= size <= 90" % size)
             return
 
         self.hole_size = int(size)
@@ -66,7 +64,7 @@ class ChartDoughnut(chart_pie.ChartPie):
     def _write_chart_type(self, args):
         # Override the virtual superclass method with a chart specific method.
         # Write the c:doughnutChart element.
-        self._write_doughnut_chart()
+        self._write_doughnut_chart(args)
 
     ###########################################################################
     #
@@ -74,7 +72,7 @@ class ChartDoughnut(chart_pie.ChartPie):
     #
     ###########################################################################
 
-    def _write_doughnut_chart(self):
+    def _write_doughnut_chart(self, args):
         # Write the <c:doughnutChart> element.  Over-ridden method to remove
         # axis_id code since Doughnut charts don't require val and cat axes.
         self._xml_start_tag("c:doughnutChart")

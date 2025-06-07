@@ -1,17 +1,17 @@
 import functools
-import logging
 import operator
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from typing import Optional, Tuple, Any, Dict, List
 
 import numpy
 import wasabi.tables
 
-from .. import util
+from ..pipeline import TextCategorizer, MultiLabel_TextCategorizer
 from ..errors import Errors
-from ..pipeline import MultiLabel_TextCategorizer, TextCategorizer
 from ..training import Corpus
-from ._util import Arg, Opt, app, import_code, setup_gpu
+from ._util import app, Arg, Opt, import_code, setup_gpu
+from .. import util
 
 _DEFAULTS = {
     "n_trials": 11,
@@ -35,11 +35,11 @@ def find_threshold_cli(
     code_path: Optional[Path] = Opt(None, "--code", "-c", help="Path to Python file with additional code (registered functions) to be imported"),
     use_gpu: int = Opt(_DEFAULTS["use_gpu"], "--gpu-id", "-g", help="GPU ID or -1 for CPU"),
     gold_preproc: bool = Opt(_DEFAULTS["gold_preproc"], "--gold-preproc", "-G", help="Use gold preprocessing"),
-    verbose: bool = Opt(False, "--verbose", "-V", "-VV", help="Display more information for debugging purposes"),
+    verbose: bool = Opt(False, "--silent", "-V", "-VV", help="Display more information for debugging purposes"),
     # fmt: on
 ):
     """
-    Runs prediction trials for a trained model with varying thresholds to maximize
+    Runs prediction trials for a trained model with varying tresholds to maximize
     the specified metric. The search space for the threshold is traversed linearly
     from 0 to 1 in `n_trials` steps. Results are displayed in a table on `stdout`
     (the corresponding API call to `spacy.cli.find_threshold.find_threshold()`
@@ -52,8 +52,8 @@ def find_threshold_cli(
 
     DOCS: https://spacy.io/api/cli#find-threshold
     """
-    if verbose:
-        util.logger.setLevel(logging.DEBUG)
+
+    util.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     import_code(code_path)
     find_threshold(
         model=model,
@@ -81,7 +81,7 @@ def find_threshold(
     silent: bool = True,
 ) -> Tuple[float, float, Dict[float, float]]:
     """
-    Runs prediction trials for models with varying thresholds to maximize the specified metric.
+    Runs prediction trials for models with varying tresholds to maximize the specified metric.
     model (Union[str, Path]): Pipeline to evaluate. Can be a package or a path to a data directory.
     data_path (Path): Path to file with DocBin with docs to use for threshold search.
     pipe_name (str): Name of pipe to examine thresholds for.

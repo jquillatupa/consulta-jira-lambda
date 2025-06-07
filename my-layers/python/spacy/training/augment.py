@@ -1,16 +1,18 @@
-import itertools
+from typing import Callable, Iterator, Dict, List, Tuple, TYPE_CHECKING
+from typing import Optional
 import random
+import itertools
 from functools import partial
-from typing import TYPE_CHECKING, Callable, Dict, Iterator, List, Optional, Tuple
 
 from ..util import registry
 from .example import Example
-from .iob_utils import _doc_to_biluo_tags_with_partial, split_bilu_label
+from .iob_utils import split_bilu_label, _doc_to_biluo_tags_with_partial
 
 if TYPE_CHECKING:
     from ..language import Language  # noqa: F401
 
 
+@registry.augmenters("spacy.combined_augmenter.v1")
 def create_combined_augmenter(
     lower_level: float,
     orth_level: float,
@@ -83,6 +85,7 @@ def combined_augmenter(
     yield example
 
 
+@registry.augmenters("spacy.orth_variants.v1")
 def create_orth_variants_augmenter(
     level: float, lower: float, orth_variants: Dict[str, List[Dict]]
 ) -> Callable[["Language", Example], Iterator[Example]]:
@@ -100,6 +103,7 @@ def create_orth_variants_augmenter(
     )
 
 
+@registry.augmenters("spacy.lower_case.v1")
 def create_lower_casing_augmenter(
     level: float,
 ) -> Callable[["Language", Example], Iterator[Example]]:

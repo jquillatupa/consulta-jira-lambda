@@ -3,8 +3,7 @@
 # ChartRadar - A class for writing the Excel XLSX Radar charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import chart
@@ -28,7 +27,7 @@ class ChartRadar(chart.Chart):
         Constructor.
 
         """
-        super().__init__()
+        super(ChartRadar, self).__init__()
 
         if options is None:
             options = {}
@@ -74,7 +73,7 @@ class ChartRadar(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         self._xml_start_tag("c:radarChart")

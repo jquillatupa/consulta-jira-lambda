@@ -1,23 +1,22 @@
-# cython: profile=False
 cimport numpy as np
-
-import copy
-import warnings
+from libc.math cimport sqrt
 
 import numpy
 from thinc.api import get_array_module
+import warnings
+import copy
 
+from .doc cimport token_by_start, token_by_end, get_token_attr, _get_lca_matrix
+from ..structs cimport TokenC, LexemeC
+from ..typedefs cimport flags_t, attr_t, hash_t
+from ..attrs cimport attr_id_t
+from ..parts_of_speech cimport univ_pos_t
 from ..attrs cimport *
-from ..attrs cimport ORTH, attr_id_t
 from ..lexeme cimport Lexeme
-from ..structs cimport TokenC
 from ..symbols cimport dep
-from ..typedefs cimport attr_t, hash_t
-from .doc cimport _get_lca_matrix, get_token_attr
-from .token cimport Token
 
-from ..errors import Errors, Warnings
 from ..util import normalize_slice
+from ..errors import Errors, Warnings
 from .underscore import Underscore, get_ext_args
 
 
@@ -127,17 +126,14 @@ cdef class Span:
         self._vector = vector
         self._vector_norm = vector_norm
 
-    def __richcmp__(self, object other, int op):
+    def __richcmp__(self, Span other, int op):
         if other is None:
             if op == 0 or op == 1 or op == 2:
                 return False
             else:
                 return True
-        if not isinstance(other, Span):
-            return False
-        cdef Span other_span = other
         self_tuple = (self.c.start_char, self.c.end_char, self.c.label, self.c.kb_id, self.id, self.doc)
-        other_tuple = (other_span.c.start_char, other_span.c.end_char, other_span.c.label, other_span.c.kb_id, other_span.id, other_span.doc)
+        other_tuple = (other.c.start_char, other.c.end_char, other.c.label, other.c.kb_id, other.id, other.doc)
         # <
         if op == 0:
             return self_tuple < other_tuple
@@ -344,26 +340,13 @@ cdef class Span:
         """
         if "similarity" in self.doc.user_span_hooks:
             return self.doc.user_span_hooks["similarity"](self, other)
-        attr = getattr(self.doc.vocab.vectors, "attr", ORTH)
-        cdef Token this_token
-        cdef Token other_token
-        cdef Lexeme other_lex
-        if len(self) == 1 and isinstance(other, Token):
-            this_token = self[0]
-            other_token = other
-            if Token.get_struct_attr(this_token.c, attr) == Token.get_struct_attr(other_token.c, attr):
-                return 1.0
-        elif len(self) == 1 and isinstance(other, Lexeme):
-            this_token = self[0]
-            other_lex = other
-            if Token.get_struct_attr(this_token.c, attr) == Lexeme.get_struct_attr(other_lex.c, attr):
+        if len(self) == 1 and hasattr(other, "orth"):
+            if self[0].orth == other.orth:
                 return 1.0
         elif isinstance(other, (Doc, Span)) and len(self) == len(other):
             similar = True
             for i in range(len(self)):
-                this_token = self[i]
-                other_token = other[i]
-                if Token.get_struct_attr(this_token.c, attr) != Token.get_struct_attr(other_token.c, attr):
+                if self[i].orth != getattr(other[i], "orth", None):
                     similar = False
                     break
             if similar:
@@ -379,7 +362,7 @@ cdef class Span:
         result = xp.dot(vector, other.vector) / (self.vector_norm * other.vector_norm)
         # ensure we get a scalar back (numpy does this automatically but cupy doesn't)
         return result.item()
-
+    
     cpdef np.ndarray to_array(self, object py_attr_ids):
         """Given a list of M attribute IDs, export the tokens to a numpy
         `ndarray` of shape `(N, M)`, where `N` is the length of the document.
@@ -477,12 +460,9 @@ cdef class Span:
                     start = i
                     if start >= self.end:
                         break
-                elif i == self.doc.length - 1:
-                    yield Span(self.doc, start, self.doc.length)
+            if start < self.end:
+                yield Span(self.doc, start, self.end)
 
-            # Ensure that trailing parts of the Span instance are included in last element of .sents.
-            if start == self.doc.length - 1:
-                yield Span(self.doc, start, self.doc.length)
 
     @property
     def ents(self):
@@ -597,6 +577,7 @@ cdef class Span:
         """
         return "".join([t.text_with_ws for t in self])
 
+
     @property
     def noun_chunks(self):
         """Iterate over the base noun phrases in the span. Yields base
@@ -658,28 +639,21 @@ cdef class Span:
         else:
             return self.doc[root]
 
-    def char_span(self, int start_idx, int end_idx, label=0, kb_id=0, vector=None, id=0, alignment_mode="strict", span_id=0):
+    def char_span(self, int start_idx, int end_idx, label=0, kb_id=0, vector=None, id=0):
         """Create a `Span` object from the slice `span.text[start : end]`.
 
         start (int): The index of the first character of the span.
         end (int): The index of the first character after the span.
-        label (Union[int, str]): A label to attach to the Span, e.g. for
+        label (uint64 or string): A label to attach to the Span, e.g. for
             named entities.
-        kb_id (Union[int, str]):  An ID from a KB to capture the meaning of a named entity.
+        kb_id (uint64 or string):  An ID from a KB to capture the meaning of a named entity.
         vector (ndarray[ndim=1, dtype='float32']): A meaning representation of
             the span.
-        id (Union[int, str]): Unused.
-        alignment_mode (str): How character indices are aligned to token
-            boundaries. Options: "strict" (character indices must be aligned
-            with token boundaries), "contract" (span of all tokens completely
-            within the character span), "expand" (span of all tokens at least
-            partially covered by the character span). Defaults to "strict".
-        span_id (Union[int, str]): An identifier to associate with the span.
         RETURNS (Span): The newly constructed object.
         """
         start_idx += self.c.start_char
         end_idx += self.c.start_char
-        return self.doc.char_span(start_idx, end_idx, label=label, kb_id=kb_id, vector=vector, alignment_mode=alignment_mode, span_id=span_id)
+        return self.doc.char_span(start_idx, end_idx, label=label, kb_id=kb_id, vector=vector)
 
     @property
     def conjuncts(self):
@@ -757,87 +731,78 @@ cdef class Span:
         for word in self.rights:
             yield from word.subtree
 
-    @property
-    def start(self):
-        return self.c.start
+    property start:
+        def __get__(self):
+            return self.c.start
 
-    @start.setter
-    def start(self, int start):
-        if start < 0:
-            raise IndexError(Errors.E1032.format(var="start", forbidden="< 0", value=start))
-        self.c.start = start
+        def __set__(self, int start):
+            if start < 0:
+                raise IndexError(Errors.E1032.format(var="start", forbidden="< 0", value=start))
+            self.c.start = start
 
-    @property
-    def end(self):
-        return self.c.end
+    property end:
+        def __get__(self):
+            return self.c.end
 
-    @end.setter
-    def end(self, int end):
-        if end < 0:
-            raise IndexError(Errors.E1032.format(var="end", forbidden="< 0", value=end))
-        self.c.end = end
+        def __set__(self, int end):
+            if end < 0:
+                raise IndexError(Errors.E1032.format(var="end", forbidden="< 0", value=end))
+            self.c.end = end
 
-    @property
-    def start_char(self):
-        return self.c.start_char
+    property start_char:
+        def __get__(self):
+            return self.c.start_char
 
-    @start_char.setter
-    def start_char(self, int start_char):
-        if start_char < 0:
-            raise IndexError(Errors.E1032.format(var="start_char", forbidden="< 0", value=start_char))
-        self.c.start_char = start_char
+        def __set__(self, int start_char):
+            if start_char < 0:
+                raise IndexError(Errors.E1032.format(var="start_char", forbidden="< 0", value=start_char))
+            self.c.start_char = start_char
 
-    @property
-    def end_char(self):
-        return self.c.end_char
+    property end_char:
+        def __get__(self):
+            return self.c.end_char
 
-    @end_char.setter
-    def end_char(self, int end_char):
-        if end_char < 0:
-            raise IndexError(Errors.E1032.format(var="end_char", forbidden="< 0", value=end_char))
-        self.c.end_char = end_char
+        def __set__(self, int end_char):
+            if end_char < 0:
+                raise IndexError(Errors.E1032.format(var="end_char", forbidden="< 0", value=end_char))
+            self.c.end_char = end_char
 
-    @property
-    def label(self):
-        return self.c.label
+    property label:
+        def __get__(self):
+            return self.c.label
 
-    @label.setter
-    def label(self, attr_t label):
-        self.c.label = label
+        def __set__(self, attr_t label):
+            self.c.label = label
 
-    @property
-    def kb_id(self):
-        return self.c.kb_id
+    property kb_id:
+        def __get__(self):
+            return self.c.kb_id
 
-    @kb_id.setter
-    def kb_id(self, attr_t kb_id):
-        self.c.kb_id = kb_id
+        def __set__(self, attr_t kb_id):
+            self.c.kb_id = kb_id
 
-    @property
-    def id(self):
-        return self.c.id
+    property id:
+        def __get__(self):
+            return self.c.id
 
-    @id.setter
-    def id(self, attr_t id):
-        self.c.id = id
+        def __set__(self, attr_t id):
+            self.c.id = id
 
-    @property
-    def ent_id(self):
+    property ent_id:
         """RETURNS (uint64): The entity ID."""
-        return self.root.ent_id
+        def __get__(self):
+            return self.root.ent_id
 
-    @ent_id.setter
-    def ent_id(self, hash_t key):
-        raise NotImplementedError(Errors.E200.format(attr="ent_id"))
+        def __set__(self, hash_t key):
+            raise NotImplementedError(Errors.E200.format(attr="ent_id"))
 
-    @property
-    def ent_id_(self):
+    property ent_id_:
         """RETURNS (str): The (string) entity ID."""
-        return self.root.ent_id_
+        def __get__(self):
+            return self.root.ent_id_
 
-    @ent_id_.setter
-    def ent_id_(self, str key):
-        raise NotImplementedError(Errors.E200.format(attr="ent_id_"))
+        def __set__(self, str key):
+            raise NotImplementedError(Errors.E200.format(attr="ent_id_"))
 
     @property
     def orth_(self):
@@ -852,32 +817,29 @@ cdef class Span:
         """RETURNS (str): The span's lemma."""
         return "".join([t.lemma_ + t.whitespace_ for t in self]).strip()
 
-    @property
-    def label_(self):
+    property label_:
         """RETURNS (str): The span's label."""
-        return self.doc.vocab.strings[self.label]
+        def __get__(self):
+            return self.doc.vocab.strings[self.label]
 
-    @label_.setter
-    def label_(self, str label_):
-        self.label = self.doc.vocab.strings.add(label_)
+        def __set__(self, str label_):
+            self.label = self.doc.vocab.strings.add(label_)
 
-    @property
-    def kb_id_(self):
+    property kb_id_:
         """RETURNS (str): The span's KB ID."""
-        return self.doc.vocab.strings[self.kb_id]
+        def __get__(self):
+            return self.doc.vocab.strings[self.kb_id]
 
-    @kb_id_.setter
-    def kb_id_(self, str kb_id_):
-        self.kb_id = self.doc.vocab.strings.add(kb_id_)
+        def __set__(self, str kb_id_):
+            self.kb_id = self.doc.vocab.strings.add(kb_id_)
 
-    @property
-    def id_(self):
+    property id_:
         """RETURNS (str): The span's ID."""
-        return self.doc.vocab.strings[self.id]
+        def __get__(self):
+            return self.doc.vocab.strings[self.id]
 
-    @id_.setter
-    def id_(self, str id_):
-        self.id = self.doc.vocab.strings.add(id_)
+        def __set__(self, str id_):
+            self.id = self.doc.vocab.strings.add(id_)
 
 
 cdef int _count_words_to_root(const TokenC* token, int sent_length) except -1:

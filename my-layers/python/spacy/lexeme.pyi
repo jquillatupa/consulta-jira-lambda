@@ -1,7 +1,8 @@
-from typing import Any, Union
-
+from typing import (
+    Union,
+    Any,
+)
 from thinc.types import Floats1d
-
 from .tokens import Doc, Span, Token
 from .vocab import Vocab
 
@@ -24,8 +25,7 @@ class Lexeme:
     def orth_(self) -> str: ...
     @property
     def text(self) -> str: ...
-    orth: int
-    lower: int
+    lower: str
     norm: int
     shape: int
     prefix: int

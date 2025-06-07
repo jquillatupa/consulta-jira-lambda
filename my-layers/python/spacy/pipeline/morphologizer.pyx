@@ -1,23 +1,23 @@
-# cython: infer_types=True, binding=True
-import importlib
-import sys
+# cython: infer_types=True, profile=True, binding=True
+from typing import Optional, Union, Dict, Callable
+import srsly
+from thinc.api import SequenceCategoricalCrossentropy, Model, Config
 from itertools import islice
-from typing import Callable, Dict, Optional, Union
 
-from thinc.api import Config, Model, SequenceCategoricalCrossentropy
-
-from ..morphology cimport Morphology
 from ..tokens.doc cimport Doc
 from ..vocab cimport Vocab
+from ..morphology cimport Morphology
 
-from .. import util
-from ..errors import Errors
-from ..language import Language
 from ..parts_of_speech import IDS as POS_IDS
+from ..symbols import POS
+from ..language import Language
+from ..errors import Errors
+from .pipe import deserialize_config
+from .tagger import Tagger
+from .. import util
 from ..scorer import Scorer
 from ..training import validate_examples, validate_get_examples
 from ..util import registry
-from .tagger import Tagger
 
 # See #9050
 BACKWARD_OVERWRITE = True
@@ -49,6 +49,23 @@ maxout_pieces = 3
 DEFAULT_MORPH_MODEL = Config().from_str(default_model_config)["model"]
 
 
+@Language.factory(
+    "morphologizer",
+    assigns=["token.morph", "token.pos"],
+    default_config={"model": DEFAULT_MORPH_MODEL, "overwrite": True, "extend": False, "scorer": {"@scorers": "spacy.morphologizer_scorer.v1"}},
+    default_score_weights={"pos_acc": 0.5, "morph_acc": 0.5, "morph_per_feat": None},
+)
+def make_morphologizer(
+    nlp: Language,
+    model: Model,
+    name: str,
+    overwrite: bool,
+    extend: bool,
+    scorer: Optional[Callable],
+):
+    return Morphologizer(nlp.vocab, model, name, overwrite=overwrite, extend=extend, scorer=scorer)
+
+
 def morphologizer_score(examples, **kwargs):
     def morph_key_getter(token, attr):
         return getattr(token, attr).key
@@ -56,14 +73,12 @@ def morphologizer_score(examples, **kwargs):
     results = {}
     results.update(Scorer.score_token_attr(examples, "pos", **kwargs))
     results.update(Scorer.score_token_attr(examples, "morph", getter=morph_key_getter, **kwargs))
-    results.update(
-        Scorer.score_token_attr_per_feat(
-            examples, "morph", getter=morph_key_getter, **kwargs
-        )
-    )
+    results.update(Scorer.score_token_attr_per_feat(examples,
+        "morph", getter=morph_key_getter, **kwargs))
     return results
 
 
+@registry.scorers("spacy.morphologizer_scorer.v1")
 def make_morphologizer_scorer():
     return morphologizer_score
 
@@ -79,7 +94,6 @@ class Morphologizer(Tagger):
         *,
         overwrite: bool = BACKWARD_OVERWRITE,
         extend: bool = BACKWARD_EXTEND,
-        label_smoothing: float = 0.0,
         scorer: Optional[Callable] = morphologizer_score,
     ):
         """Initialize a morphologizer.
@@ -107,7 +121,6 @@ class Morphologizer(Tagger):
             "labels_pos": {},
             "overwrite": overwrite,
             "extend": extend,
-            "label_smoothing": label_smoothing,
         }
         self.cfg = dict(sorted(cfg.items()))
         self.scorer = scorer
@@ -215,6 +228,7 @@ class Morphologizer(Tagger):
         if isinstance(docs, Doc):
             docs = [docs]
         cdef Doc doc
+        cdef Vocab vocab = self.vocab
         cdef bint overwrite = self.cfg["overwrite"]
         cdef bint extend = self.cfg["extend"]
         labels = self.labels
@@ -256,8 +270,7 @@ class Morphologizer(Tagger):
         DOCS: https://spacy.io/api/morphologizer#get_loss
         """
         validate_examples(examples, "Morphologizer.get_loss")
-        loss_func = SequenceCategoricalCrossentropy(names=self.labels, normalize=False,
-                                                    label_smoothing=self.cfg["label_smoothing"])
+        loss_func = SequenceCategoricalCrossentropy(names=self.labels, normalize=False)
         truths = []
         for eg in examples:
             eg_truths = []
@@ -291,11 +304,3 @@ class Morphologizer(Tagger):
         if self.model.ops.xp.isnan(loss):
             raise ValueError(Errors.E910.format(name=self.name))
         return float(loss), d_scores
-
-
-# Setup backwards compatibility hook for factories
-def __getattr__(name):
-    if name == "make_morphologizer":
-        module = importlib.import_module("spacy.pipeline.factories")
-        return module.make_morphologizer
-    raise AttributeError(f"module {__name__} has no attribute {name}")

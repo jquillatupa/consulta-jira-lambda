@@ -3,39 +3,35 @@
 # Packager - A class for writing the Excel XLSX Worksheet file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 # Standard packages.
 import os
 import stat
 import tempfile
-from io import BytesIO, StringIO
 from shutil import copy
+
+from io import StringIO
+from io import BytesIO
 
 # Package imports.
 from .app import App
-from .comments import Comments
 from .contenttypes import ContentTypes
 from .core import Core
 from .custom import Custom
-from .exceptions import EmptyChartSeries
-from .feature_property_bag import FeaturePropertyBag
 from .metadata import Metadata
 from .relationships import Relationships
-from .rich_value import RichValue
-from .rich_value_rel import RichValueRel
-from .rich_value_structure import RichValueStructure
-from .rich_value_types import RichValueTypes
 from .sharedstrings import SharedStrings
 from .styles import Styles
-from .table import Table
 from .theme import Theme
 from .vml import Vml
+from .table import Table
+from .comments import Comments
+from .exceptions import EmptyChartSeries
 
 
-class Packager:
+class Packager(object):
     """
     A class for writing the Excel XLSX Packager file.
 
@@ -89,7 +85,7 @@ class Packager:
 
         """
 
-        super().__init__()
+        super(Packager, self).__init__()
 
         self.tmpdir = ""
         self.in_memory = False
@@ -153,7 +149,6 @@ class Packager:
         self._write_worksheet_rels_files()
         self._write_chartsheet_rels_files()
         self._write_drawing_rels_files()
-        self._write_rich_value_rels_files()
         self._add_image_files()
         self._add_vba_project()
         self._add_vba_project_signature()
@@ -161,8 +156,6 @@ class Packager:
         self._write_core_file()
         self._write_app_file()
         self._write_metadata_file()
-        self._write_feature_bag_property()
-        self._write_rich_value_files()
 
         return self.filenames
 
@@ -226,8 +219,8 @@ class Packager:
             # Check that the chart has at least one data series.
             if not chart.series:
                 raise EmptyChartSeries(
-                    f"Chart{index} must contain at least one "
-                    f"data series. See chart.add_series()."
+                    "Chart%d must contain at least one "
+                    "data series. See chart.add_series()." % index
                 )
 
             chart._set_xml_writer(
@@ -313,28 +306,23 @@ class Packager:
         properties = self.workbook.doc_properties
         app = App()
 
+        # Add the Worksheet heading pairs.
+        app._add_heading_pair(["Worksheets", self.worksheet_count])
+
+        # Add the Chartsheet heading pairs.
+        app._add_heading_pair(["Charts", self.chartsheet_count])
+
         # Add the Worksheet parts.
-        worksheet_count = 0
         for worksheet in self.workbook.worksheets():
             if worksheet.is_chartsheet:
                 continue
-
-            # Don't write/count veryHidden sheets.
-            if worksheet.hidden != 2:
-                app._add_part_name(worksheet.name)
-                worksheet_count += 1
-
-        # Add the Worksheet heading pairs.
-        app._add_heading_pair(["Worksheets", worksheet_count])
+            app._add_part_name(worksheet.name)
 
         # Add the Chartsheet parts.
         for worksheet in self.workbook.worksheets():
             if not worksheet.is_chartsheet:
                 continue
             app._add_part_name(worksheet.name)
-
-        # Add the Chartsheet heading pairs.
-        app._add_heading_pair(["Charts", self.chartsheet_count])
 
         # Add the Named Range heading pairs.
         if self.named_ranges:
@@ -365,73 +353,15 @@ class Packager:
             return
 
         metadata = Metadata()
-        metadata.has_dynamic_functions = self.workbook.has_dynamic_functions
-        metadata.num_embedded_images = len(self.workbook.embedded_images.images)
-
         metadata._set_xml_writer(self._filename("xl/metadata.xml"))
         metadata._assemble_xml_file()
-
-    def _write_feature_bag_property(self):
-        # Write the featurePropertyBag.xml file.
-        feature_property_bags = self.workbook._has_feature_property_bags()
-        if not feature_property_bags:
-            return
-
-        property_bag = FeaturePropertyBag()
-        property_bag.feature_property_bags = feature_property_bags
-
-        property_bag._set_xml_writer(
-            self._filename("xl/featurePropertyBag/featurePropertyBag.xml")
-        )
-        property_bag._assemble_xml_file()
-
-    def _write_rich_value_files(self):
-
-        if not self.workbook.embedded_images.has_images():
-            return
-
-        self._write_rich_value()
-        self._write_rich_value_types()
-        self._write_rich_value_structure()
-        self._write_rich_value_rel()
-
-    def _write_rich_value(self):
-        # Write the rdrichvalue.xml file.
-        filename = self._filename("xl/richData/rdrichvalue.xml")
-        xml_file = RichValue()
-        xml_file.embedded_images = self.workbook.embedded_images.images
-        xml_file._set_xml_writer(filename)
-        xml_file._assemble_xml_file()
-
-    def _write_rich_value_types(self):
-        # Write the rdRichValueTypes.xml file.
-        filename = self._filename("xl/richData/rdRichValueTypes.xml")
-        xml_file = RichValueTypes()
-        xml_file._set_xml_writer(filename)
-        xml_file._assemble_xml_file()
-
-    def _write_rich_value_structure(self):
-        # Write the rdrichvaluestructure.xml file.
-        filename = self._filename("xl/richData/rdrichvaluestructure.xml")
-        xml_file = RichValueStructure()
-        xml_file.has_embedded_descriptions = self.workbook.has_embedded_descriptions
-        xml_file._set_xml_writer(filename)
-        xml_file._assemble_xml_file()
-
-    def _write_rich_value_rel(self):
-        # Write the richValueRel.xml file.
-        filename = self._filename("xl/richData/richValueRel.xml")
-        xml_file = RichValueRel()
-        xml_file.num_embedded_images = len(self.workbook.embedded_images.images)
-        xml_file._set_xml_writer(filename)
-        xml_file._assemble_xml_file()
 
     def _write_custom_file(self):
         # Write the custom.xml file.
         properties = self.workbook.custom_properties
         custom = Custom()
 
-        if not properties:
+        if not len(properties):
             return
 
         custom._set_properties(properties)
@@ -487,14 +417,6 @@ class Packager:
         # Add the metadata file if present.
         if self.workbook.has_metadata:
             content._add_metadata()
-
-        # Add the metadata file if present.
-        if self.workbook._has_feature_property_bags():
-            content._add_feature_bag_property()
-
-        # Add the RichValue file if present.
-        if self.workbook.embedded_images.has_images():
-            content._add_rich_value()
 
         content._set_xml_writer(self._filename("[Content_Types].xml"))
         content._assemble_xml_file()
@@ -610,14 +532,6 @@ class Packager:
         # Add the metadata file if required.
         if self.workbook.has_metadata:
             rels._add_document_relationship("/sheetMetadata", "metadata.xml")
-
-        # Add the RichValue files if present.
-        if self.workbook.embedded_images.has_images():
-            rels._add_rich_value_relationship()
-
-        # Add the checkbox/FeaturePropertyBag file if present.
-        if self.workbook._has_feature_property_bags():
-            rels._add_feature_bag_relationship()
 
         rels._set_xml_writer(self._filename("xl/_rels/workbook.xml.rels"))
         rels._assemble_xml_file()
@@ -738,50 +652,29 @@ class Packager:
         rels._set_xml_writer(self._filename("xl/_rels/vbaProject.bin.rels"))
         rels._assemble_xml_file()
 
-    def _write_rich_value_rels_files(self):
-        # Write the richValueRel.xml.rels for embedded images.
-        if not self.workbook.embedded_images.has_images():
-            return
-
-        # Create the worksheet .rels dirs.
-        rels = Relationships()
-
-        index = 1
-        for image in self.workbook.embedded_images.images:
-            image_extension = image.image_type.lower()
-            image_file = f"../media/image{index}.{image_extension}"
-            rels._add_document_relationship("/image", image_file)
-            index += 1
-
-        # Create .rels file such as /xl/worksheets/_rels/sheet1.xml.rels.
-        rels._set_xml_writer(self._filename("/xl/richData/_rels/richValueRel.xml.rels"))
-
-        rels._assemble_xml_file()
-
     def _add_image_files(self):
-        # pylint: disable=consider-using-with
         # Write the /xl/media/image?.xml files.
         workbook = self.workbook
         index = 1
 
-        images = workbook.embedded_images.images + workbook.images
+        for image in workbook.images:
+            filename = image[0]
+            ext = "." + image[1]
+            image_data = image[2]
 
-        for image in images:
-            xml_image_name = (
-                "xl/media/image" + str(index) + "." + image._image_extension
-            )
+            xml_image_name = "xl/media/image" + str(index) + ext
 
             if not self.in_memory:
                 # In file mode we just write or copy the image file.
                 os_filename = self._filename(xml_image_name)
 
-                if image.image_data:
+                if image_data:
                     # The data is in a byte stream. Write it to the target.
                     os_file = open(os_filename, mode="wb")
-                    os_file.write(image.image_data.getvalue())
+                    os_file.write(image_data.getvalue())
                     os_file.close()
                 else:
-                    copy(image.filename, os_filename)
+                    copy(filename, os_filename)
 
                     # Allow copies of Windows read-only images to be deleted.
                     try:
@@ -792,11 +685,11 @@ class Packager:
                         pass
             else:
                 # For in-memory mode we read the image into a stream.
-                if image.image_data:
+                if image_data:
                     # The data is already in a byte stream.
-                    os_filename = image.image_data
+                    os_filename = image_data
                 else:
-                    image_file = open(image.filename, mode="rb")
+                    image_file = open(filename, mode="rb")
                     image_data = image_file.read()
                     os_filename = BytesIO(image_data)
                     image_file.close()
@@ -806,7 +699,6 @@ class Packager:
             index += 1
 
     def _add_vba_project_signature(self):
-        # pylint: disable=consider-using-with
         # Copy in a vbaProjectSignature.bin file.
         vba_project_signature = self.workbook.vba_project_signature
         vba_project_signature_is_stream = self.workbook.vba_project_signature_is_stream
@@ -842,7 +734,6 @@ class Packager:
             self.filenames.append((os_filename, xml_vba_signature_name, True))
 
     def _add_vba_project(self):
-        # pylint: disable=consider-using-with
         # Copy in a vbaProject.bin file.
         vba_project = self.workbook.vba_project
         vba_project_is_stream = self.workbook.vba_project_is_stream

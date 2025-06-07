@@ -1,19 +1,18 @@
-import importlib
-import sys
-from itertools import islice
-from typing import Any, Callable, Dict, Iterable, List, Optional
-
-from thinc.api import Config, Model
+from typing import Iterable, Optional, Dict, List, Callable, Any
 from thinc.types import Floats2d
+from thinc.api import Model, Config
 
-from ..errors import Errors
+from itertools import islice
+
 from ..language import Language
+from ..training import Example, validate_get_examples
+from ..errors import Errors
 from ..scorer import Scorer
 from ..tokens import Doc
-from ..training import Example, validate_get_examples
 from ..util import registry
 from ..vocab import Vocab
 from .textcat import TextCategorizer
+
 
 multi_label_default_config = """
 [model]
@@ -37,9 +36,8 @@ maxout_pieces = 3
 depth = 2
 
 [model.linear_model]
-@architectures = "spacy.TextCatBOW.v3"
+@architectures = "spacy.TextCatBOW.v2"
 exclusive_classes = false
-length = 262144
 ngram_size = 1
 no_output_layer = false
 """
@@ -47,7 +45,7 @@ DEFAULT_MULTI_TEXTCAT_MODEL = Config().from_str(multi_label_default_config)["mod
 
 multi_label_bow_config = """
 [model]
-@architectures = "spacy.TextCatBOW.v3"
+@architectures = "spacy.TextCatBOW.v2"
 exclusive_classes = false
 ngram_size = 1
 no_output_layer = false
@@ -55,12 +53,8 @@ no_output_layer = false
 
 multi_label_cnn_config = """
 [model]
-@architectures = "spacy.TextCatReduce.v1"
+@architectures = "spacy.TextCatCNN.v2"
 exclusive_classes = false
-use_reduce_first = false
-use_reduce_last = false
-use_reduce_max = false
-use_reduce_mean = true
 
 [model.tok2vec]
 @architectures = "spacy.HashEmbedCNN.v2"
@@ -74,6 +68,49 @@ subword_features = true
 """
 
 
+@Language.factory(
+    "textcat_multilabel",
+    assigns=["doc.cats"],
+    default_config={
+        "threshold": 0.5,
+        "model": DEFAULT_MULTI_TEXTCAT_MODEL,
+        "scorer": {"@scorers": "spacy.textcat_multilabel_scorer.v2"},
+    },
+    default_score_weights={
+        "cats_score": 1.0,
+        "cats_score_desc": None,
+        "cats_micro_p": None,
+        "cats_micro_r": None,
+        "cats_micro_f": None,
+        "cats_macro_p": None,
+        "cats_macro_r": None,
+        "cats_macro_f": None,
+        "cats_macro_auc": None,
+        "cats_f_per_type": None,
+    },
+)
+def make_multilabel_textcat(
+    nlp: Language,
+    name: str,
+    model: Model[List[Doc], List[Floats2d]],
+    threshold: float,
+    scorer: Optional[Callable],
+) -> "MultiLabel_TextCategorizer":
+    """Create a MultiLabel_TextCategorizer component. The text categorizer predicts categories
+    over a whole document. It can learn one or more labels, and the labels are considered
+    to be non-mutually exclusive, which means that there can be zero or more labels
+    per doc).
+
+    model (Model[List[Doc], List[Floats2d]]): A model instance that predicts
+        scores for each category.
+    threshold (float): Cutoff to consider a prediction "positive".
+    scorer (Optional[Callable]): The scoring method.
+    """
+    return MultiLabel_TextCategorizer(
+        nlp.vocab, model, name, threshold=threshold, scorer=scorer
+    )
+
+
 def textcat_multilabel_score(examples: Iterable[Example], **kwargs) -> Dict[str, Any]:
     return Scorer.score_cats(
         examples,
@@ -83,6 +120,7 @@ def textcat_multilabel_score(examples: Iterable[Example], **kwargs) -> Dict[str,
     )
 
 
+@registry.scorers("spacy.textcat_multilabel_scorer.v2")
 def make_textcat_multilabel_scorer():
     return textcat_multilabel_score
 
@@ -170,11 +208,3 @@ class MultiLabel_TextCategorizer(TextCategorizer):
             for val in ex.reference.cats.values():
                 if not (val == 1.0 or val == 0.0):
                     raise ValueError(Errors.E851.format(val=val))
-
-
-# Setup backwards compatibility hook for factories
-def __getattr__(name):
-    if name == "make_multilabel_textcat":
-        module = importlib.import_module("spacy.pipeline.factories")
-        return module.make_multilabel_textcat
-    raise AttributeError(f"module {__name__} has no attribute {name}")

@@ -1,19 +1,17 @@
-from typing import TYPE_CHECKING, Callable, Optional
-
+from typing import Callable, Optional
 from ..errors import Errors
-from ..util import load_model, logger, registry
-
-if TYPE_CHECKING:
-    from ..language import Language
+from ..language import Language
+from ..util import load_model, registry, logger
 
 
+@registry.callbacks("spacy.copy_from_base_model.v1")
 def create_copy_from_base_model(
     tokenizer: Optional[str] = None,
     vocab: Optional[str] = None,
-) -> Callable[["Language"], "Language"]:
+) -> Callable[[Language], Language]:
     def copy_from_base_model(nlp):
         if tokenizer:
-            logger.info("Copying tokenizer from: %s", tokenizer)
+            logger.info(f"Copying tokenizer from: {tokenizer}")
             base_nlp = load_model(tokenizer)
             if nlp.config["nlp"]["tokenizer"] == base_nlp.config["nlp"]["tokenizer"]:
                 nlp.tokenizer.from_bytes(base_nlp.tokenizer.to_bytes(exclude=["vocab"]))
@@ -25,7 +23,7 @@ def create_copy_from_base_model(
                     )
                 )
         if vocab:
-            logger.info("Copying vocab from: %s", vocab)
+            logger.info(f"Copying vocab from: {vocab}")
             # only reload if the vocab is from a different model
             if tokenizer != vocab:
                 base_nlp = load_model(vocab)

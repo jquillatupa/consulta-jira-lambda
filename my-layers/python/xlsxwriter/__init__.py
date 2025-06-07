@@ -1,8 +1,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
-#
-__version__ = "3.2.3"
+__version__ = "3.1.5"
 __VERSION__ = __version__
 from .workbook import Workbook  # noqa

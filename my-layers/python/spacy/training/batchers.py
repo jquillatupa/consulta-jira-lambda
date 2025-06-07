@@ -1,24 +1,17 @@
-import itertools
+from typing import Union, Iterable, Sequence, TypeVar, List, Callable, Iterator
+from typing import Optional, Any
 from functools import partial
-from typing import (
-    Any,
-    Callable,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Sequence,
-    TypeVar,
-    Union,
-)
+import itertools
 
-from ..util import minibatch, registry
+from ..util import registry, minibatch
+
 
 Sizing = Union[Sequence[int], int]
 ItemT = TypeVar("ItemT")
 BatcherT = Callable[[Iterable[ItemT]], Iterable[List[ItemT]]]
 
 
+@registry.batchers("spacy.batch_by_padded.v1")
 def configure_minibatch_by_padded_size(
     *,
     size: Sizing,
@@ -53,6 +46,7 @@ def configure_minibatch_by_padded_size(
     )
 
 
+@registry.batchers("spacy.batch_by_words.v1")
 def configure_minibatch_by_words(
     *,
     size: Sizing,
@@ -80,6 +74,7 @@ def configure_minibatch_by_words(
     )
 
 
+@registry.batchers("spacy.batch_by_sequence.v1")
 def configure_minibatch(
     size: Sizing, get_length: Optional[Callable[[ItemT], int]] = None
 ) -> BatcherT:

@@ -3,8 +3,7 @@
 # Chartsheet - A class for writing the Excel XLSX Worksheet file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import worksheet
@@ -30,7 +29,7 @@ class Chartsheet(worksheet.Worksheet):
 
         """
 
-        super().__init__()
+        super(Chartsheet, self).__init__()
 
         self.is_chartsheet = True
         self.drawing = None
@@ -99,7 +98,7 @@ class Chartsheet(worksheet.Worksheet):
             self.protection = True
 
         # Call the parent method.
-        super().protect(password, copy)
+        super(Chartsheet, self).protect(password, copy)
 
     ###########################################################################
     #

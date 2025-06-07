@@ -3,12 +3,10 @@
 # ChartPie - A class for writing the Excel XLSX Pie charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from warnings import warn
-
 from . import chart
 
 
@@ -25,12 +23,12 @@ class ChartPie(chart.Chart):
     #
     ###########################################################################
 
-    def __init__(self):
+    def __init__(self, options=None):
         """
         Constructor.
 
         """
-        super().__init__()
+        super(ChartPie, self).__init__()
 
         self.vary_data_color = 1
         self.rotation = 0
@@ -61,7 +59,7 @@ class ChartPie(chart.Chart):
         # Ensure the rotation is in Excel's range.
         if rotation < 0 or rotation > 360:
             warn(
-                f"Chart rotation '{rotation}' outside Excel range: 0 <= rotation <= 360"
+                "Chart rotation %d outside Excel range: 0 <= rotation <= 360" % rotation
             )
             return
 
@@ -76,7 +74,7 @@ class ChartPie(chart.Chart):
     def _write_chart_type(self, args):
         # Override the virtual superclass method with a chart specific method.
         # Write the c:pieChart element.
-        self._write_pie_chart()
+        self._write_pie_chart(args)
 
     ###########################################################################
     #
@@ -84,7 +82,7 @@ class ChartPie(chart.Chart):
     #
     ###########################################################################
 
-    def _write_pie_chart(self):
+    def _write_pie_chart(self, args):
         # Write the <c:pieChart> element.  Over-ridden method to remove
         # axis_id code since Pie charts don't require val and cat axes.
         self._xml_start_tag("c:pieChart")
@@ -131,7 +129,6 @@ class ChartPie(chart.Chart):
             second_chart.series_index = self.series_index
 
             # Write the subclass chart type elements for combined chart.
-            # pylint: disable-next=protected-access
             second_chart._write_chart_type(None)
 
         # Write the c:spPr element for the plotarea formatting.
@@ -252,12 +249,3 @@ class ChartPie(chart.Chart):
         attributes = [("val", self.rotation)]
 
         self._xml_empty_tag("c:firstSliceAng", attributes)
-
-    def _write_show_leader_lines(self):
-        # Write the <c:showLeaderLines> element.
-        #
-        # This is for Pie/Doughnut charts. Other chart types only supported
-        # leader lines after Excel 2015 via an extension element.
-        attributes = [("val", 1)]
-
-        self._xml_empty_tag("c:showLeaderLines", attributes)

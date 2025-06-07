@@ -3,8 +3,7 @@
 # ChartStock - A class for writing the Excel XLSX Stock charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import chart
@@ -22,14 +21,14 @@ class ChartStock(chart.Chart):
     #
     ###########################################################################
 
-    def __init__(self):
+    def __init__(self, options=None):
         """
         Constructor.
 
         """
-        super().__init__()
+        super(ChartStock, self).__init__()
 
-        self.show_crosses = False
+        self.show_crosses = 0
         self.hi_low_lines = {}
         self.date_category = True
 
@@ -79,7 +78,7 @@ class ChartStock(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         # Add default formatting to the series data.

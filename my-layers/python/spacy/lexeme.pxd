@@ -1,20 +1,11 @@
 from numpy cimport ndarray
 
-from .attrs cimport (
-    ID,
-    LANG,
-    LENGTH,
-    LOWER,
-    NORM,
-    ORTH,
-    PREFIX,
-    SHAPE,
-    SUFFIX,
-    attr_id_t,
-)
-from .strings cimport StringStore
+from .typedefs cimport attr_t, hash_t, flags_t, len_t, tag_t
+from .attrs cimport attr_id_t
+from .attrs cimport ID, ORTH, LOWER, NORM, SHAPE, PREFIX, SUFFIX, LENGTH, LANG
+
 from .structs cimport LexemeC
-from .typedefs cimport attr_t, flags_t, hash_t, len_t, tag_t
+from .strings cimport StringStore
 from .vocab cimport Vocab
 
 
@@ -35,7 +26,7 @@ cdef class Lexeme:
         return self
 
     @staticmethod
-    cdef inline void set_struct_attr(LexemeC* lex, attr_id_t name, attr_t value) noexcept nogil:
+    cdef inline void set_struct_attr(LexemeC* lex, attr_id_t name, attr_t value) nogil:
         if name < (sizeof(flags_t) * 8):
             Lexeme.c_set_flag(lex, name, value)
         elif name == ID:
@@ -54,7 +45,7 @@ cdef class Lexeme:
             lex.lang = value
 
     @staticmethod
-    cdef inline attr_t get_struct_attr(const LexemeC* lex, attr_id_t feat_name) noexcept nogil:
+    cdef inline attr_t get_struct_attr(const LexemeC* lex, attr_id_t feat_name) nogil:
         if feat_name < (sizeof(flags_t) * 8):
             if Lexeme.c_check_flag(lex, feat_name):
                 return 1
@@ -82,7 +73,7 @@ cdef class Lexeme:
             return 0
 
     @staticmethod
-    cdef inline bint c_check_flag(const LexemeC* lexeme, attr_id_t flag_id) noexcept nogil:
+    cdef inline bint c_check_flag(const LexemeC* lexeme, attr_id_t flag_id) nogil:
         cdef flags_t one = 1
         if lexeme.flags & (one << flag_id):
             return True
@@ -90,7 +81,7 @@ cdef class Lexeme:
             return False
 
     @staticmethod
-    cdef inline bint c_set_flag(LexemeC* lex, attr_id_t flag_id, bint value) noexcept nogil:
+    cdef inline bint c_set_flag(LexemeC* lex, attr_id_t flag_id, bint value) nogil:
         cdef flags_t one = 1
         if value:
             lex.flags |= one << flag_id

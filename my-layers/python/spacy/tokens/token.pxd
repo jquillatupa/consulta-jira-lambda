@@ -1,15 +1,13 @@
 from numpy cimport ndarray
-
-from ..attrs cimport *
-from ..lexeme cimport Lexeme
-from ..parts_of_speech cimport univ_pos_t
-from ..structs cimport TokenC
-from ..typedefs cimport attr_t, flags_t
 from ..vocab cimport Vocab
+from ..structs cimport TokenC
+from ..attrs cimport *
+from ..typedefs cimport attr_t, flags_t
+from ..parts_of_speech cimport univ_pos_t
 from .doc cimport Doc
+from ..lexeme cimport Lexeme
 
 from ..errors import Errors
-
 
 cdef int MISSING_DEP = 0
 
@@ -26,14 +24,14 @@ cdef class Token:
         cdef Token self = Token.__new__(Token, vocab, doc, offset)
         return self
 
-    # cdef inline TokenC struct_from_attrs(Vocab vocab, attrs):
+    #cdef inline TokenC struct_from_attrs(Vocab vocab, attrs):
     #    cdef TokenC token
     #    attrs = normalize_attrs(attrs)
 
     cpdef bint check_flag(self, attr_id_t flag_id) except -1
 
     @staticmethod
-    cdef inline attr_t get_struct_attr(const TokenC* token, attr_id_t feat_name) noexcept nogil:
+    cdef inline attr_t get_struct_attr(const TokenC* token, attr_id_t feat_name) nogil:
         if feat_name < (sizeof(flags_t) * 8):
             return Lexeme.c_check_flag(token.lex, feat_name)
         elif feat_name == LEMMA:
@@ -70,7 +68,7 @@ cdef class Token:
 
     @staticmethod
     cdef inline attr_t set_struct_attr(TokenC* token, attr_id_t feat_name,
-                                       attr_t value) noexcept nogil:
+                                       attr_t value) nogil:
         if feat_name == LEMMA:
             token.lemma = value
         elif feat_name == NORM:
@@ -98,10 +96,12 @@ cdef class Token:
         elif feat_name == SENT_START:
             token.sent_start = value
 
-    @staticmethod
-    cdef inline int missing_dep(const TokenC* token) noexcept nogil:
-        return token.dep == MISSING_DEP
 
     @staticmethod
-    cdef inline int missing_head(const TokenC* token) noexcept nogil:
+    cdef inline int missing_dep(const TokenC* token) nogil:
+        return token.dep == MISSING_DEP
+
+
+    @staticmethod
+    cdef inline int missing_head(const TokenC* token) nogil:
         return Token.missing_dep(token)

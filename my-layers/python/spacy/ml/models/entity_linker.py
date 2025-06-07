@@ -1,33 +1,19 @@
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Tuple
-
-from thinc.api import (
-    Linear,
-    Maxout,
-    Model,
-    Ragged,
-    chain,
-    list2ragged,
-    reduce_mean,
-    residual,
-    tuplify,
-)
+from typing import Optional, Callable, Iterable, List, Tuple
 from thinc.types import Floats2d
+from thinc.api import chain, list2ragged, reduce_mean, residual
+from thinc.api import Model, Maxout, Linear, tuplify, Ragged
 
-from ...errors import Errors
-from ...kb import (
-    Candidate,
-    InMemoryLookupKB,
-    KnowledgeBase,
-    get_candidates,
-    get_candidates_batch,
-)
-from ...tokens import Doc, Span
 from ...util import registry
+from ...kb import KnowledgeBase, InMemoryLookupKB
+from ...kb import Candidate, get_candidates, get_candidates_batch
 from ...vocab import Vocab
+from ...tokens import Span, Doc
 from ..extract_spans import extract_spans
+from ...errors import Errors
 
 
+@registry.architectures("spacy.EntityLinker.v2")
 def build_nel_encoder(
     tok2vec: Model, nO: Optional[int] = None
 ) -> Model[List[Doc], Floats2d]:
@@ -91,6 +77,7 @@ def span_maker_forward(model, docs: List[Doc], is_train) -> Tuple[Ragged, Callab
     return out, lambda x: []
 
 
+@registry.misc("spacy.KBFromFile.v1")
 def load_kb(
     kb_path: Path,
 ) -> Callable[[Vocab], KnowledgeBase]:
@@ -102,13 +89,7 @@ def load_kb(
     return kb_from_file
 
 
-def empty_kb_for_config() -> Callable[[Vocab, int], KnowledgeBase]:
-    def empty_kb_factory(vocab: Vocab, entity_vector_length: int):
-        return InMemoryLookupKB(vocab=vocab, entity_vector_length=entity_vector_length)
-
-    return empty_kb_factory
-
-
+@registry.misc("spacy.EmptyKB.v1")
 def empty_kb(
     entity_vector_length: int,
 ) -> Callable[[Vocab], KnowledgeBase]:
@@ -118,10 +99,12 @@ def empty_kb(
     return empty_kb_factory
 
 
+@registry.misc("spacy.CandidateGenerator.v1")
 def create_candidates() -> Callable[[KnowledgeBase, Span], Iterable[Candidate]]:
     return get_candidates
 
 
+@registry.misc("spacy.CandidateBatchGenerator.v1")
 def create_candidates_batch() -> Callable[
     [KnowledgeBase, Iterable[Span]], Iterable[Iterable[Candidate]]
 ]:

@@ -5,11 +5,11 @@ es_core_news_sm-3.5.0.dist-info/METADATA,sha256=P33M16yRG6D6c-qSzvrScWKWgNJZWZ5A
 es_core_news_sm-3.5.0.dist-info/RECORD,,
 es_core_news_sm-3.5.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
 es_core_news_sm-3.5.0.dist-info/WHEEL,sha256=2wepM1nk4DS4eFpYrW1TTqPcoGNfHhhO_i5m4cOimbo,92
-es_core_news_sm-3.5.0.dist-info/direct_url.json,sha256=A1crmiJP4h9YjVqwkA7_RSEL_aqgfn8qXdaURYwMrFI,151
+es_core_news_sm-3.5.0.dist-info/direct_url.json,sha256=hjXgwlAZ6iODvK3pjibGSQlEgdemYn4xG2zopOppFTQ,322
 es_core_news_sm-3.5.0.dist-info/entry_points.txt,sha256=QJfMnKo1_Mlsju9Wv0XgK1tDWiBwTt8gEjPn9ROgpNw,49
 es_core_news_sm-3.5.0.dist-info/top_level.txt,sha256=yLbq8_P4TmzT6xukL8QRgiMCc579s5Y2wj4Gxge3468,16
 es_core_news_sm/__init__.py,sha256=yOtXB5wD_EFXwif2QXgfvLPp0RQ5q-G_C3LkwPp4o40,237
-es_core_news_sm/__pycache__/__init__.cpython-39.pyc,,
+es_core_news_sm/__pycache__/__init__.cpython-310.pyc,,
 es_core_news_sm/es_core_news_sm-3.5.0/LICENSE,sha256=OXLcl0T2SZ8Pmy2_dmlvKuetivmyPd5m1q-Gyd-zaYY,35149
 es_core_news_sm/es_core_news_sm-3.5.0/LICENSES_SOURCES,sha256=dvpkR7ZfJsIwkaGjMJAHgQfqxRyIBjjhuSTcKvDGLSs,14383
 es_core_news_sm/es_core_news_sm-3.5.0/README.md,sha256=0HTAw_zEhZ1v25qWCT5OsljGKVyhXyhIus1NGVcH9oU,29800

@@ -3,105 +3,11 @@
 # Vml - A class for writing the Excel XLSX Vml file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 # Package imports.
-from xlsxwriter.comments import CommentType
-from xlsxwriter.image import Image
-
 from . import xmlwriter
-
-
-###########################################################################
-#
-# A button type class.
-#
-###########################################################################
-class ButtonType:
-    """
-    A class to represent a button in an Excel worksheet.
-
-    """
-
-    def __init__(
-        self,
-        row: int,
-        col: int,
-        height: int,
-        width: int,
-        button_number: int,
-        options: dict = None,
-    ):
-        """
-        Initialize a ButtonType instance.
-
-        Args:
-            row (int): The row number of the button.
-            col (int): The column number of the button.
-            height (int): The height of the button.
-            width (int): The width of the button.
-            button_number (int): The button number.
-            options (dict): Additional options for the button.
-        """
-        self.row = row
-        self.col = col
-        self.width = width
-        self.height = height
-
-        self.macro = f"[0]!Button{button_number}_Click"
-        self.caption = f"Button {button_number}"
-        self.description = None
-
-        self.x_scale = 1
-        self.y_scale = 1
-        self.x_offset = 0
-        self.y_offset = 0
-
-        self.vertices = []
-
-        # Set any user supplied options.
-        self._set_user_options(options)
-
-    def _set_user_options(self, options=None):
-        """
-        This method handles the additional optional parameters to
-        ``insert_button()``.
-        """
-        if options is None:
-            return
-
-        # Overwrite the defaults with any user supplied values. Incorrect or
-        # misspelled parameters are silently ignored.
-        self.width = options.get("width", self.width)
-        self.height = options.get("height", self.height)
-        self.caption = options.get("caption", self.caption)
-        self.x_offset = options.get("x_offset", self.x_offset)
-        self.y_offset = options.get("y_offset", self.y_offset)
-        self.description = options.get("description", self.description)
-
-        # Set the macro name.
-        if options.get("macro"):
-            self.macro = "[0]!" + options["macro"]
-
-        # Scale the size of the button box if required.
-        if options.get("x_scale"):
-            self.width = self.width * options["x_scale"]
-
-        if options.get("y_scale"):
-            self.height = self.height * options["y_scale"]
-
-        # Round the dimensions to the nearest pixel.
-        self.width = int(0.5 + self.width)
-        self.height = int(0.5 + self.height)
-
-
-###########################################################################
-#
-# The file writer class for the Excel XLSX VML file.
-#
-###########################################################################
 
 
 class Vml(xmlwriter.XMLwriter):
@@ -110,6 +16,20 @@ class Vml(xmlwriter.XMLwriter):
 
 
     """
+
+    ###########################################################################
+    #
+    # Public API.
+    #
+    ###########################################################################
+
+    def __init__(self):
+        """
+        Constructor.
+
+        """
+
+        super(Vml, self).__init__()
 
     ###########################################################################
     #
@@ -122,7 +42,7 @@ class Vml(xmlwriter.XMLwriter):
         vml_shape_id,
         comments_data=None,
         buttons_data=None,
-        header_images=None,
+        header_images_data=None,
     ):
         # Assemble and write the XML file.
         z_index = 1
@@ -152,12 +72,12 @@ class Vml(xmlwriter.XMLwriter):
                 self._write_comment_shape(vml_shape_id, z_index, comment)
                 z_index += 1
 
-        if header_images:
+        if header_images_data:
             # Write the v:shapetype element.
             self._write_image_shapetype()
 
             index = 1
-            for image in header_images:
+            for image in header_images_data:
                 # Write the v:shape element.
                 vml_shape_id += 1
                 self._write_image_shape(vml_shape_id, index, image)
@@ -395,7 +315,7 @@ class Vml(xmlwriter.XMLwriter):
 
         self._xml_empty_tag("o:lock", attributes)
 
-    def _write_comment_shape(self, shape_id, z_index, comment: CommentType):
+    def _write_comment_shape(self, shape_id, z_index, comment):
         # Write the <v:shape> element.
         shape_type = "#_x0000_t202"
         insetmode = "auto"
@@ -404,27 +324,34 @@ class Vml(xmlwriter.XMLwriter):
         # Set the shape index.
         shape_id = "_x0000_s" + str(shape_id)
 
-        (left, top, width, height) = self._pixels_to_points(comment.vertices)
+        # Get the comment parameters
+        row = comment[0]
+        col = comment[1]
+        visible = comment[4]
+        fillcolor = comment[5]
+        vertices = comment[9]
+
+        (left, top, width, height) = self._pixels_to_points(vertices)
 
         # Set the visibility.
-        if comment.is_visible:
+        if visible:
             visibility = "visible"
 
         style = (
-            f"position:absolute;"
-            f"margin-left:{left:.15g}pt;"
-            f"margin-top:{top:.15g}pt;"
-            f"width:{width:.15g}pt;"
-            f"height:{height:.15g}pt;"
-            f"z-index:{z_index};"
-            f"visibility:{visibility}"
+            "position:absolute;"
+            "margin-left:%.15gpt;"
+            "margin-top:%.15gpt;"
+            "width:%.15gpt;"
+            "height:%.15gpt;"
+            "z-index:%d;"
+            "visibility:%s" % (left, top, width, height, z_index, visibility)
         )
 
         attributes = [
             ("id", shape_id),
             ("type", shape_type),
             ("style", style),
-            ("fillcolor", comment.color),
+            ("fillcolor", fillcolor),
             ("o:insetmode", insetmode),
         ]
 
@@ -443,27 +370,32 @@ class Vml(xmlwriter.XMLwriter):
         self._write_comment_textbox()
 
         # Write the x:ClientData element.
-        self._write_comment_client_data(comment)
+        self._write_comment_client_data(row, col, visible, vertices)
 
         self._xml_end_tag("v:shape")
 
-    def _write_button_shape(self, shape_id, z_index, button: ButtonType):
+    def _write_button_shape(self, shape_id, z_index, button):
         # Write the <v:shape> element.
         shape_type = "#_x0000_t201"
 
         # Set the shape index.
         shape_id = "_x0000_s" + str(shape_id)
 
-        (left, top, width, height) = self._pixels_to_points(button.vertices)
+        # Get the button parameters.
+        # row = button["_row"]
+        # col = button["_col"]
+        vertices = button["vertices"]
+
+        (left, top, width, height) = self._pixels_to_points(vertices)
 
         style = (
-            f"position:absolute;"
-            f"margin-left:{left:.15g}pt;"
-            f"margin-top:{top:.15g}pt;"
-            f"width:{width:.15g}pt;"
-            f"height:{height:.15g}pt;"
-            f"z-index:{z_index};"
-            f"mso-wrap-style:tight"
+            "position:absolute;"
+            "margin-left:%.15gpt;"
+            "margin-top:%.15gpt;"
+            "width:%.15gpt;"
+            "height:%.15gpt;"
+            "z-index:%d;"
+            "mso-wrap-style:tight" % (left, top, width, height, z_index)
         )
 
         attributes = [
@@ -471,8 +403,8 @@ class Vml(xmlwriter.XMLwriter):
             ("type", shape_type),
         ]
 
-        if button.description is not None:
-            attributes.append(("alt", button.description))
+        if button.get("description"):
+            attributes.append(("alt", button["description"]))
 
         attributes.append(("style", style))
         attributes.append(("o:button", "t"))
@@ -489,14 +421,14 @@ class Vml(xmlwriter.XMLwriter):
         self._write_rotation_lock()
 
         # Write the v:textbox element.
-        self._write_button_textbox(button)
+        self._write_button_textbox(button["font"])
 
         # Write the x:ClientData element.
         self._write_button_client_data(button)
 
         self._xml_end_tag("v:shape")
 
-    def _write_image_shape(self, shape_id, z_index, image: Image):
+    def _write_image_shape(self, shape_id, z_index, image_data):
         # Write the <v:shape> element.
         shape_type = "#_x0000_t75"
 
@@ -504,13 +436,13 @@ class Vml(xmlwriter.XMLwriter):
         shape_id = "_x0000_s" + str(shape_id)
 
         # Get the image parameters
-        name = image.image_name
-        width = image._width
-        x_dpi = image._x_dpi
-        y_dpi = image._y_dpi
-        height = image._height
-        ref_id = image._ref_id
-        position = image._header_position
+        width = image_data[0]
+        height = image_data[1]
+        name = image_data[2]
+        position = image_data[3]
+        x_dpi = image_data[4]
+        y_dpi = image_data[5]
+        ref_id = image_data[6]
 
         # Scale the height/width by the resolution, relative to 72dpi.
         width = width * 72.0 / x_dpi
@@ -521,12 +453,12 @@ class Vml(xmlwriter.XMLwriter):
         height = 72.0 / 96 * int(height * 96.0 / 72 + 0.25)
 
         style = (
-            f"position:absolute;"
-            f"margin-left:0;"
-            f"margin-top:0;"
-            f"width:{width:.15g}pt;"
-            f"height:{height:.15g}pt;"
-            f"z-index:{z_index}"
+            "position:absolute;"
+            "margin-left:0;"
+            "margin-top:0;"
+            "width:%.15gpt;"
+            "height:%.15gpt;"
+            "z-index:%d" % (width, height, z_index)
         )
 
         attributes = [
@@ -593,7 +525,7 @@ class Vml(xmlwriter.XMLwriter):
 
         self._xml_end_tag("v:textbox")
 
-    def _write_button_textbox(self, button: ButtonType):
+    def _write_button_textbox(self, font):
         # Write the <v:textbox> element.
         style = "mso-direction-alt:auto"
 
@@ -602,11 +534,11 @@ class Vml(xmlwriter.XMLwriter):
         self._xml_start_tag("v:textbox", attributes)
 
         # Write the div element.
-        self._write_div("center", button.caption)
+        self._write_div("center", font)
 
         self._xml_end_tag("v:textbox")
 
-    def _write_div(self, align: str, caption: str = None):
+    def _write_div(self, align, font=None):
         # Write the <div> element.
 
         style = "text-align:" + align
@@ -615,13 +547,15 @@ class Vml(xmlwriter.XMLwriter):
 
         self._xml_start_tag("div", attributes)
 
-        if caption:
-            self._write_button_font(caption)
+        if font:
+            # Write the font element.
+            self._write_font(font)
 
         self._xml_end_tag("div")
 
-    def _write_button_font(self, caption: str):
+    def _write_font(self, font):
         # Write the <font> element.
+        caption = font["caption"]
         face = "Calibri"
         size = 220
         color = "#000000"
@@ -634,7 +568,7 @@ class Vml(xmlwriter.XMLwriter):
 
         self._xml_data_element("font", caption, attributes)
 
-    def _write_comment_client_data(self, comment: CommentType):
+    def _write_comment_client_data(self, row, col, visible, vertices):
         # Write the <x:ClientData> element.
         object_type = "Note"
 
@@ -649,25 +583,28 @@ class Vml(xmlwriter.XMLwriter):
         self._write_size_with_cells()
 
         # Write the x:Anchor element.
-        self._write_anchor(comment.vertices)
+        self._write_anchor(vertices)
 
         # Write the x:AutoFill element.
         self._write_auto_fill()
 
         # Write the x:Row element.
-        self._write_row(comment.row)
+        self._write_row(row)
 
         # Write the x:Column element.
-        self._write_column(comment.col)
+        self._write_column(col)
 
         # Write the x:Visible element.
-        if comment.is_visible:
+        if visible:
             self._write_visible()
 
         self._xml_end_tag("x:ClientData")
 
     def _write_button_client_data(self, button):
         # Write the <x:ClientData> element.
+        macro = button["macro"]
+        vertices = button["vertices"]
+
         object_type = "Button"
 
         attributes = [("ObjectType", object_type)]
@@ -675,7 +612,7 @@ class Vml(xmlwriter.XMLwriter):
         self._xml_start_tag("x:ClientData", attributes)
 
         # Write the x:Anchor element.
-        self._write_anchor(button.vertices)
+        self._write_anchor(vertices)
 
         # Write the x:PrintObject element.
         self._write_print_object()
@@ -684,7 +621,7 @@ class Vml(xmlwriter.XMLwriter):
         self._write_auto_fill()
 
         # Write the x:FmlaMacro element.
-        self._write_fmla_macro(button.macro)
+        self._write_fmla_macro(macro)
 
         # Write the x:TextHAlign element.
         self._write_text_halign()

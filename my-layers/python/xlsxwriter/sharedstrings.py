@@ -3,13 +3,19 @@
 # SharedStrings - A class for writing the Excel XLSX sharedStrings file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
-#
+
+# Standard packages.
+import re
 
 # Package imports.
 from . import xmlwriter
-from .utility import _preserve_whitespace
+from .utility import preserve_whitespace
+
+# Compile performance critical regular expressions.
+re_control_chars_1 = re.compile("(_x[0-9a-fA-F]{4}_)")
+re_control_chars_2 = re.compile(r"([\x00-\x08\x0b-\x1f])")
 
 
 class SharedStrings(xmlwriter.XMLwriter):
@@ -30,7 +36,7 @@ class SharedStrings(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(SharedStrings, self).__init__()
 
         self.string_table = None
 
@@ -86,11 +92,25 @@ class SharedStrings(xmlwriter.XMLwriter):
         # Write the <si> element.
         attributes = []
 
-        # Convert control character to a _xHHHH_ escape.
-        string = self._escape_control_characters(string)
+        # Excel escapes control characters with _xHHHH_ and also escapes any
+        # literal strings of that type by encoding the leading underscore.
+        # So "\0" -> _x0000_ and "_x0000_" -> _x005F_x0000_.
+        # The following substitutions deal with those cases.
+
+        # Escape the escape.
+        string = re_control_chars_1.sub(r"_x005F\1", string)
+
+        # Convert control character to the _xHHHH_ escape.
+        string = re_control_chars_2.sub(
+            lambda match: "_x%04X_" % ord(match.group(1)), string
+        )
+
+        # Escapes non characters in strings.
+        string = string.replace("\uFFFE", "_xFFFE_")
+        string = string.replace("\uFFFF", "_xFFFF_")
 
         # Add attribute to preserve leading or trailing whitespace.
-        if _preserve_whitespace(string):
+        if preserve_whitespace(string):
             attributes.append(("xml:space", "preserve"))
 
         # Write any rich strings without further tags.
@@ -101,7 +121,7 @@ class SharedStrings(xmlwriter.XMLwriter):
 
 
 # A metadata class to store Excel strings between worksheets.
-class SharedStringTable:
+class SharedStringTable(object):
     """
     A class to track Excel shared strings between worksheets.
 
@@ -122,11 +142,11 @@ class SharedStringTable:
             self.count += 1
             self.unique_count += 1
             return index
-
-        # String exists in the table.
-        index = self.string_table[string]
-        self.count += 1
-        return index
+        else:
+            # String exists in the table.
+            index = self.string_table[string]
+            self.count += 1
+            return index
 
     def _get_shared_string(self, index):
         """ " Get a shared string from the index."""

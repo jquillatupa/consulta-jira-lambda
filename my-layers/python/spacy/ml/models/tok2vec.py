@@ -1,34 +1,20 @@
-from typing import List, Optional, Union, cast
+from typing import Optional, List, Union, cast
+from thinc.types import Floats2d, Ints2d, Ragged, Ints1d
+from thinc.api import chain, clone, concatenate, with_array, with_padded
+from thinc.api import Model, noop, list2ragged, ragged2list, HashEmbed
+from thinc.api import expand_window, residual, Maxout, Mish, PyTorchLSTM
 
-from thinc.api import (
-    HashEmbed,
-    Maxout,
-    Mish,
-    Model,
-    PyTorchLSTM,
-    chain,
-    clone,
-    concatenate,
-    expand_window,
-    list2ragged,
-    noop,
-    ragged2list,
-    residual,
-    with_array,
-    with_padded,
-)
-from thinc.types import Floats2d, Ints1d, Ints2d, Ragged
-
-from ...attrs import intify_attr
-from ...errors import Errors
-from ...ml import _character_embed
-from ...pipeline.tok2vec import Tok2VecListener
 from ...tokens import Doc
 from ...util import registry
-from ..featureextractor import FeatureExtractor
+from ...errors import Errors
+from ...ml import _character_embed
 from ..staticvectors import StaticVectors
+from ..featureextractor import FeatureExtractor
+from ...pipeline.tok2vec import Tok2VecListener
+from ...attrs import intify_attr
 
 
+@registry.architectures("spacy.Tok2VecListener.v1")
 def tok2vec_listener_v1(width: int, upstream: str = "*"):
     tok2vec = Tok2VecListener(upstream_name=upstream, width=width)
     return tok2vec
@@ -45,6 +31,7 @@ def get_tok2vec_width(model: Model):
     return nO
 
 
+@registry.architectures("spacy.HashEmbedCNN.v2")
 def build_hash_embed_cnn_tok2vec(
     *,
     width: int,
@@ -65,8 +52,8 @@ def build_hash_embed_cnn_tok2vec(
         are between 2 and 8.
     window_size (int): The number of tokens on either side to concatenate during
         the convolutions. The receptive field of the CNN will be
-        depth * window_size * 2 + 1, so a 4-layer network with window_size of
-        2 will be sensitive to 17 words at a time. Recommended value is 1.
+        depth * (window_size * 2 + 1), so a 4-layer network with window_size of
+        2 will be sensitive to 20 words at a time. Recommended value is 1.
     embed_size (int): The number of rows in the hash embedding tables. This can
         be surprisingly small, due to the use of the hash embeddings. Recommended
         values are between 2000 and 10000.
@@ -100,6 +87,7 @@ def build_hash_embed_cnn_tok2vec(
     )
 
 
+@registry.architectures("spacy.Tok2Vec.v2")
 def build_Tok2Vec_model(
     embed: Model[List[Doc], List[Floats2d]],
     encode: Model[List[Floats2d], List[Floats2d]],
@@ -120,9 +108,10 @@ def build_Tok2Vec_model(
     return tok2vec
 
 
+@registry.architectures("spacy.MultiHashEmbed.v2")
 def MultiHashEmbed(
     width: int,
-    attrs: Union[List[str], List[int], List[Union[str, int]]],
+    attrs: List[Union[str, int]],
     rows: List[int],
     include_static_vectors: bool,
 ) -> Model[List[Doc], List[Floats2d]]:
@@ -188,7 +177,7 @@ def MultiHashEmbed(
         )
     else:
         model = chain(
-            FeatureExtractor(attrs),
+            FeatureExtractor(list(attrs)),
             cast(Model[List[Ints2d], Ragged], list2ragged()),
             with_array(concatenate(*embeddings)),
             max_out,
@@ -197,6 +186,7 @@ def MultiHashEmbed(
     return model
 
 
+@registry.architectures("spacy.CharacterEmbed.v2")
 def CharacterEmbed(
     width: int,
     rows: int,
@@ -273,6 +263,7 @@ def CharacterEmbed(
     return model
 
 
+@registry.architectures("spacy.MaxoutWindowEncoder.v2")
 def MaxoutWindowEncoder(
     width: int, window_size: int, maxout_pieces: int, depth: int
 ) -> Model[List[Floats2d], List[Floats2d]]:
@@ -304,6 +295,7 @@ def MaxoutWindowEncoder(
     return with_array(model, pad=receptive_field)
 
 
+@registry.architectures("spacy.MishWindowEncoder.v2")
 def MishWindowEncoder(
     width: int, window_size: int, depth: int
 ) -> Model[List[Floats2d], List[Floats2d]]:
@@ -326,6 +318,7 @@ def MishWindowEncoder(
     return with_array(model)
 
 
+@registry.architectures("spacy.TorchBiLSTMEncoder.v1")
 def BiLSTMEncoder(
     width: int, depth: int, dropout: float
 ) -> Model[List[Floats2d], List[Floats2d]]:

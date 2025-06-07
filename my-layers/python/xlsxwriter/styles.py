@@ -3,8 +3,7 @@
 # Styles - A class for writing the Excel XLSX Worksheet file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 # Package imports.
@@ -30,7 +29,7 @@ class Styles(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(Styles, self).__init__()
 
         self.xf_formats = []
         self.palette = []
@@ -189,7 +188,10 @@ class Styles(xmlwriter.XMLwriter):
 
         # Set the format code for built-in number formats.
         if num_fmt_id < 164:
-            format_code = format_codes.get(num_fmt_id, "General")
+            if num_fmt_id in format_codes:
+                format_code = format_codes[num_fmt_id]
+            else:
+                format_code = "General"
 
         attributes = [
             ("numFmtId", num_fmt_id),
@@ -572,15 +574,13 @@ class Styles(xmlwriter.XMLwriter):
 
     def _write_xf(self, xf_format):
         # Write the <xf> element.
-        xf_id = xf_format.xf_id
+        num_fmt_id = xf_format.num_format_index
         font_id = xf_format.font_index
         fill_id = xf_format.fill_index
         border_id = xf_format.border_index
-        num_fmt_id = xf_format.num_format_index
-
-        has_checkbox = xf_format.checkbox
-        has_alignment = False
-        has_protection = False
+        xf_id = xf_format.xf_id
+        has_align = 0
+        has_protect = 0
 
         attributes = [
             ("numFmtId", num_fmt_id),
@@ -613,7 +613,7 @@ class Styles(xmlwriter.XMLwriter):
 
         # Check if an alignment sub-element should be written.
         if apply_align and align:
-            has_alignment = True
+            has_align = 1
 
         # We can also have applyAlignment without a sub-element.
         if apply_align or xf_format.hyperlink:
@@ -626,21 +626,15 @@ class Styles(xmlwriter.XMLwriter):
             attributes.append(("applyProtection", 1))
 
             if not xf_format.hyperlink:
-                has_protection = True
+                has_protect = 1
 
         # Write XF with sub-elements if required.
-        if has_alignment or has_protection or has_checkbox:
+        if has_align or has_protect:
             self._xml_start_tag("xf", attributes)
-
-            if has_alignment:
+            if has_align:
                 self._xml_empty_tag("alignment", align)
-
-            if has_protection:
+            if has_protect:
                 self._xml_empty_tag("protection", protection)
-
-            if has_checkbox:
-                self._write_xf_format_extensions()
-
             self._xml_end_tag("xf")
         else:
             self._xml_empty_tag("xf", attributes)
@@ -684,25 +678,20 @@ class Styles(xmlwriter.XMLwriter):
             self._xml_start_tag("dxfs", attributes)
 
             # Write the font elements for xf_format objects that have them.
-            for dxf_format in self.dxf_formats:
+            for xf_format in self.dxf_formats:
                 self._xml_start_tag("dxf")
-                if dxf_format.has_dxf_font:
-                    self._write_font(dxf_format, True)
+                if xf_format.has_dxf_font:
+                    self._write_font(xf_format, True)
 
-                if dxf_format.num_format_index:
+                if xf_format.num_format_index:
                     self._write_num_fmt(
-                        dxf_format.num_format_index, dxf_format.num_format
+                        xf_format.num_format_index, xf_format.num_format
                     )
 
-                if dxf_format.has_dxf_fill:
-                    self._write_fill(dxf_format, True)
-
-                if dxf_format.has_dxf_border:
-                    self._write_border(dxf_format, True)
-
-                if dxf_format.checkbox:
-                    self._write_dxf_format_extensions()
-
+                if xf_format.has_dxf_fill:
+                    self._write_fill(xf_format, True)
+                if xf_format.has_dxf_border:
+                    self._write_border(xf_format, True)
                 self._xml_end_tag("dxf")
 
             self._xml_end_tag("dxfs")
@@ -763,41 +752,3 @@ class Styles(xmlwriter.XMLwriter):
         attributes = [("val", 0)]
 
         self._xml_empty_tag("extend", attributes)
-
-    def _write_xf_format_extensions(self):
-        # Write the xfComplement <extLst> elements.
-        schema = "http://schemas.microsoft.com/office/spreadsheetml"
-        attributes = [
-            ("uri", "{C7286773-470A-42A8-94C5-96B5CB345126}"),
-            (
-                "xmlns:xfpb",
-                schema + "/2022/featurepropertybag",
-            ),
-        ]
-
-        self._xml_start_tag("extLst")
-        self._xml_start_tag("ext", attributes)
-
-        self._xml_empty_tag("xfpb:xfComplement", [("i", "0")])
-
-        self._xml_end_tag("ext")
-        self._xml_end_tag("extLst")
-
-    def _write_dxf_format_extensions(self):
-        # Write the DXFComplement <extLst> elements.
-        schema = "http://schemas.microsoft.com/office/spreadsheetml"
-        attributes = [
-            ("uri", "{0417FA29-78FA-4A13-93AC-8FF0FAFDF519}"),
-            (
-                "xmlns:xfpb",
-                schema + "/2022/featurepropertybag",
-            ),
-        ]
-
-        self._xml_start_tag("extLst")
-        self._xml_start_tag("ext", attributes)
-
-        self._xml_empty_tag("xfpb:DXFComplement", [("i", "0")])
-
-        self._xml_end_tag("ext")
-        self._xml_end_tag("extLst")

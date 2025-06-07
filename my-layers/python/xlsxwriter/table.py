@@ -3,8 +3,7 @@
 # Table - A class for writing the Excel XLSX Worksheet file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import xmlwriter
@@ -29,7 +28,7 @@ class Table(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(Table, self).__init__()
 
         self.properties = {}
 

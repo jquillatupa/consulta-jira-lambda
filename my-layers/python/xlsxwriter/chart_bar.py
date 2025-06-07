@@ -3,13 +3,11 @@
 # ChartBar - A class for writing the Excel XLSX Bar charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
-#
-
-from warnings import warn
 
 from . import chart
+from warnings import warn
 
 
 class ChartBar(chart.Chart):
@@ -30,7 +28,7 @@ class ChartBar(chart.Chart):
         Constructor.
 
         """
-        super().__init__()
+        super(ChartBar, self).__init__()
 
         if options is None:
             options = {}
@@ -44,7 +42,7 @@ class ChartBar(chart.Chart):
         self.val_axis_position = "b"
         self.horiz_val_axis = 0
         self.horiz_cat_axis = 1
-        self.show_crosses = False
+        self.show_crosses = 0
 
         # Override and reset the default axis values.
         self.x_axis["defaults"]["major_gridlines"] = {"visible": 1}
@@ -66,7 +64,6 @@ class ChartBar(chart.Chart):
         self.set_y_axis({})
 
     def combine(self, chart=None):
-        # pylint: disable=redefined-outer-name
         """
         Create a combination chart with a secondary chart.
 
@@ -117,7 +114,7 @@ class ChartBar(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         subtype = self.subtype

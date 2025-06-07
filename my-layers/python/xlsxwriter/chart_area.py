@@ -3,8 +3,7 @@
 # ChartArea - A class for writing the Excel XLSX Area charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import chart
@@ -28,7 +27,7 @@ class ChartArea(chart.Chart):
         Constructor.
 
         """
-        super().__init__()
+        super(ChartArea, self).__init__()
 
         if options is None:
             options = {}
@@ -39,7 +38,7 @@ class ChartArea(chart.Chart):
             self.subtype = "standard"
 
         self.cross_between = "midCat"
-        self.show_crosses = False
+        self.show_crosses = 0
 
         # Override and reset the default axis values.
         if self.subtype == "percent_stacked":
@@ -76,7 +75,7 @@ class ChartArea(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         subtype = self.subtype

@@ -3,52 +3,12 @@
 # Drawing - A class for writing the Excel XLSX Drawing file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
-#
-
-from enum import Enum
-
-from xlsxwriter.url import Url
 
 from . import xmlwriter
 from .shape import Shape
-from .utility import _get_rgb_color
-
-
-class DrawingTypes(Enum):
-    """
-    Enum to represent different types of drawings in a worksheet.
-    """
-
-    NONE = 0
-    CHART = 1
-    IMAGE = 2
-    SHAPE = 3
-
-
-class DrawingInfo:
-    """
-    An internal class to represent a drawing object in an Excel worksheet.
-
-    """
-
-    def __init__(self):
-        """
-        Initialize a DrawingType instance with default values.
-        """
-        self._drawing_type = DrawingTypes.NONE
-        self._anchor_type = None
-        self._dimensions = []
-        self._width = 0
-        self._height = 0
-        self._shape = None
-        self._anchor = None
-        self._url = None
-        self._rel_index = 0
-        self._name = None
-        self._description = None
-        self._decorative = False
+from .utility import get_rgb_color
 
 
 class Drawing(xmlwriter.XMLwriter):
@@ -70,7 +30,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(Drawing, self).__init__()
 
         self.drawings = []
         self.embedded = 0
@@ -93,25 +53,41 @@ class Drawing(xmlwriter.XMLwriter):
 
         if self.embedded:
             index = 0
-            for drawing in self.drawings:
+            for drawing_properties in self.drawings:
                 # Write the xdr:twoCellAnchor element.
                 index += 1
-                self._write_two_cell_anchor(index, drawing)
+                self._write_two_cell_anchor(index, drawing_properties)
 
         else:
             # Write the xdr:absoluteAnchor element.
-            drawing = DrawingInfo()
-            drawing._rel_index = 1
-            self._write_absolute_anchor(1, drawing)
+            self._write_absolute_anchor(1)
 
         self._xml_end_tag("xdr:wsDr")
 
         # Close the file.
         self._xml_close()
 
-    def _add_drawing_object(self, drawing_object: DrawingInfo):
+    def _add_drawing_object(self):
         # Add a chart, image or shape sub object to the drawing.
+
+        drawing_object = {
+            "anchor_type": None,
+            "dimensions": [],
+            "width": 0,
+            "height": 0,
+            "shape": None,
+            "anchor": None,
+            "rel_index": 0,
+            "url_rel_index": 0,
+            "tip": None,
+            "name": None,
+            "description": None,
+            "decorative": False,
+        }
+
         self.drawings.append(drawing_object)
+
+        return drawing_object
 
     ###########################################################################
     #
@@ -132,9 +108,10 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_start_tag("xdr:wsDr", attributes)
 
-    def _write_two_cell_anchor(self, index: int, drawing: DrawingInfo):
+    def _write_two_cell_anchor(self, index, drawing_properties):
         # Write the <xdr:twoCellAnchor> element.
-        dimensions = drawing._dimensions
+        anchor_type = drawing_properties["type"]
+        dimensions = drawing_properties["dimensions"]
         col_from = dimensions[0]
         row_from = dimensions[1]
         col_from_offset = dimensions[2]
@@ -145,18 +122,28 @@ class Drawing(xmlwriter.XMLwriter):
         row_to_offset = dimensions[7]
         col_absolute = dimensions[8]
         row_absolute = dimensions[9]
+        width = drawing_properties["width"]
+        height = drawing_properties["height"]
+        shape = drawing_properties["shape"]
+        anchor = drawing_properties["anchor"]
+        rel_index = drawing_properties["rel_index"]
+        url_rel_index = drawing_properties["url_rel_index"]
+        tip = drawing_properties["tip"]
+        name = drawing_properties["name"]
+        description = drawing_properties["description"]
+        decorative = drawing_properties["decorative"]
 
         attributes = []
 
         # Add attribute for positioning.
-        if drawing._anchor == 2:
+        if anchor == 2:
             attributes.append(("editAs", "oneCell"))
-        elif drawing._anchor == 3:
+        elif anchor == 3:
             attributes.append(("editAs", "absolute"))
 
         # Add editAs attribute for shapes.
-        if drawing._shape and drawing._shape.edit_as:
-            attributes.append(("editAs", drawing._shape.edit_as))
+        if shape and shape.edit_as:
+            attributes.append(("editAs", shape.edit_as))
 
         self._xml_start_tag("xdr:twoCellAnchor", attributes)
 
@@ -166,23 +153,46 @@ class Drawing(xmlwriter.XMLwriter):
         # Write the xdr:from element.
         self._write_to(col_to, row_to, col_to_offset, row_to_offset)
 
-        if drawing._drawing_type == DrawingTypes.CHART:
+        if anchor_type == 1:
             # Graphic frame.
             # Write the xdr:graphicFrame element for charts.
-            self._write_graphic_frame(index, drawing)
-        elif drawing._drawing_type == DrawingTypes.IMAGE:
+            self._write_graphic_frame(index, rel_index, name, description, decorative)
+        elif anchor_type == 2:
             # Write the xdr:pic element.
-            self._write_pic(index, col_absolute, row_absolute, drawing)
+            self._write_pic(
+                index,
+                rel_index,
+                col_absolute,
+                row_absolute,
+                width,
+                height,
+                shape,
+                description,
+                url_rel_index,
+                tip,
+                decorative,
+            )
         else:
             # Write the xdr:sp element for shapes.
-            self._write_sp(index, col_absolute, row_absolute, drawing)
+            self._write_sp(
+                index,
+                col_absolute,
+                row_absolute,
+                width,
+                height,
+                shape,
+                description,
+                url_rel_index,
+                tip,
+                decorative,
+            )
 
         # Write the xdr:clientData element.
         self._write_client_data()
 
         self._xml_end_tag("xdr:twoCellAnchor")
 
-    def _write_absolute_anchor(self, index: int, drawing: DrawingInfo):
+    def _write_absolute_anchor(self, frame_index):
         self._xml_start_tag("xdr:absoluteAnchor")
         # Write the <xdr:absoluteAnchor> element.
 
@@ -202,14 +212,14 @@ class Drawing(xmlwriter.XMLwriter):
             self._write_xdr_ext(6162675, 6124575)
 
         # Write the xdr:graphicFrame element.
-        self._write_graphic_frame(index, drawing)
+        self._write_graphic_frame(frame_index, frame_index)
 
         # Write the xdr:clientData element.
         self._write_client_data()
 
         self._xml_end_tag("xdr:absoluteAnchor")
 
-    def _write_from(self, col: int, row: int, col_offset, row_offset):
+    def _write_from(self, col, row, col_offset, row_offset):
         # Write the <xdr:from> element.
         self._xml_start_tag("xdr:from")
 
@@ -227,7 +237,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_end_tag("xdr:from")
 
-    def _write_to(self, col: int, row: int, col_offset, row_offset):
+    def _write_to(self, col, row, col_offset, row_offset):
         # Write the <xdr:to> element.
         self._xml_start_tag("xdr:to")
 
@@ -275,55 +285,56 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_empty_tag("xdr:ext", attributes)
 
-    def _write_graphic_frame(self, index: int, drawing: DrawingInfo):
+    def _write_graphic_frame(
+        self, index, rel_index, name=None, description=None, decorative=None
+    ):
         # Write the <xdr:graphicFrame> element.
         attributes = [("macro", "")]
 
         self._xml_start_tag("xdr:graphicFrame", attributes)
 
         # Write the xdr:nvGraphicFramePr element.
-        self._write_nv_graphic_frame_pr(index, drawing)
+        self._write_nv_graphic_frame_pr(index, name, description, decorative)
 
         # Write the xdr:xfrm element.
         self._write_xfrm()
 
         # Write the a:graphic element.
-        self._write_atag_graphic(drawing._rel_index)
+        self._write_atag_graphic(rel_index)
 
         self._xml_end_tag("xdr:graphicFrame")
 
-    def _write_nv_graphic_frame_pr(self, index: int, drawing: DrawingInfo):
+    def _write_nv_graphic_frame_pr(self, index, name, description, decorative):
         # Write the <xdr:nvGraphicFramePr> element.
 
-        name = drawing._name
         if not name:
             name = "Chart " + str(index)
 
         self._xml_start_tag("xdr:nvGraphicFramePr")
 
         # Write the xdr:cNvPr element.
-        self._write_c_nv_pr(index + 1, drawing, name)
+        self._write_c_nv_pr(index + 1, name, description, None, None, decorative)
 
         # Write the xdr:cNvGraphicFramePr element.
         self._write_c_nv_graphic_frame_pr()
 
         self._xml_end_tag("xdr:nvGraphicFramePr")
 
-    def _write_c_nv_pr(self, index: int, drawing: DrawingInfo, name: str):
+    def _write_c_nv_pr(self, index, name, description, url_rel_index, tip, decorative):
         # Write the <xdr:cNvPr> element.
         attributes = [("id", index), ("name", name)]
 
         # Add description attribute for images.
-        if drawing._description and not drawing._decorative:
-            attributes.append(("descr", drawing._description))
+        if description and not decorative:
+            attributes.append(("descr", description))
 
-        if drawing._url or drawing._decorative:
+        if url_rel_index or decorative:
             self._xml_start_tag("xdr:cNvPr", attributes)
 
-            if drawing._url:
-                self._write_a_hlink_click(drawing._url)
+            if url_rel_index:
+                self._write_a_hlink_click(url_rel_index, tip)
 
-            if drawing._decorative:
+            if decorative:
                 self._write_decorative()
 
             self._xml_end_tag("xdr:cNvPr")
@@ -374,18 +385,18 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_empty_tag("a16:creationId", attributes)
 
-    def _write_a_hlink_click(self, url: Url):
+    def _write_a_hlink_click(self, rel_index, tip):
         # Write the <a:hlinkClick> element.
         schema = "http://schemas.openxmlformats.org/officeDocument/"
         xmlns_r = schema + "2006/relationships"
 
         attributes = [
             ("xmlns:r", xmlns_r),
-            ("r:id", "rId" + str(url._rel_index)),
+            ("r:id", "rId" + str(rel_index)),
         ]
 
-        if url._tip:
-            attributes.append(("tooltip", url._tip))
+        if tip:
+            attributes.append(("tooltip", tip))
 
         self._xml_empty_tag("a:hlinkClick", attributes)
 
@@ -439,7 +450,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_empty_tag("a:ext", attributes)
 
-    def _write_atag_graphic(self, index: int):
+    def _write_atag_graphic(self, index):
         # Write the <a:graphic> element.
         self._xml_start_tag("a:graphic")
 
@@ -448,7 +459,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_end_tag("a:graphic")
 
-    def _write_atag_graphic_data(self, index: int):
+    def _write_atag_graphic_data(self, index):
         # Write the <a:graphicData> element.
         uri = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
@@ -490,45 +501,61 @@ class Drawing(xmlwriter.XMLwriter):
         index,
         col_absolute,
         row_absolute,
-        drawing: DrawingInfo,
+        width,
+        height,
+        shape,
+        description,
+        url_rel_index,
+        tip,
+        decorative,
     ):
         # Write the <xdr:sp> element.
 
-        if drawing._shape and drawing._shape.connect:
+        if shape and shape.connect:
             attributes = [("macro", "")]
             self._xml_start_tag("xdr:cxnSp", attributes)
 
             # Write the xdr:nvCxnSpPr element.
-            self._write_nv_cxn_sp_pr(drawing._shape)
+            self._write_nv_cxn_sp_pr(index, shape)
 
             # Write the xdr:spPr element.
-            self._write_xdr_sp_pr(col_absolute, row_absolute, drawing)
+            self._write_xdr_sp_pr(
+                index, col_absolute, row_absolute, width, height, shape
+            )
 
             self._xml_end_tag("xdr:cxnSp")
         else:
             # Add attribute for shapes.
-            attributes = [("macro", ""), ("textlink", drawing._shape.textlink)]
+            attributes = [("macro", ""), ("textlink", shape.textlink)]
 
             self._xml_start_tag("xdr:sp", attributes)
 
             # Write the xdr:nvSpPr element.
-            self._write_nv_sp_pr(index, drawing)
+            self._write_nv_sp_pr(
+                index, shape, url_rel_index, tip, description, decorative
+            )
 
             # Write the xdr:spPr element.
-            self._write_xdr_sp_pr(col_absolute, row_absolute, drawing)
+            self._write_xdr_sp_pr(
+                index, col_absolute, row_absolute, width, height, shape
+            )
 
             # Write the xdr:style element.
             self._write_style()
 
             # Write the xdr:txBody element.
-            if drawing._shape.text is not None:
-                self._write_tx_body(drawing._shape)
+            if shape.text is not None:
+                self._write_tx_body(col_absolute, row_absolute, width, height, shape)
 
             self._xml_end_tag("xdr:sp")
 
-    def _write_nv_cxn_sp_pr(self, shape):
+    def _write_nv_cxn_sp_pr(self, index, shape):
         # Write the <xdr:nvCxnSpPr> element.
         self._xml_start_tag("xdr:nvCxnSpPr")
+
+        name = shape.name + " " + str(index)
+        if name is not None:
+            self._write_c_nv_pr(index, name, None, None, None, None)
 
         self._xml_start_tag("xdr:cNvCxnSpPr")
 
@@ -546,17 +573,21 @@ class Drawing(xmlwriter.XMLwriter):
         self._xml_end_tag("xdr:cNvCxnSpPr")
         self._xml_end_tag("xdr:nvCxnSpPr")
 
-    def _write_nv_sp_pr(self, index: int, drawing: DrawingInfo):
+    def _write_nv_sp_pr(
+        self, index, shape, url_rel_index, tip, description, decorative
+    ):
         # Write the <xdr:NvSpPr> element.
         attributes = []
 
         self._xml_start_tag("xdr:nvSpPr")
 
-        name = drawing._shape.name + " " + str(index)
+        name = shape.name + " " + str(index)
 
-        self._write_c_nv_pr(index + 1, drawing, name)
+        self._write_c_nv_pr(
+            index + 1, name, description, url_rel_index, tip, decorative
+        )
 
-        if drawing._shape.name == "TextBox":
+        if shape.name == "TextBox":
             attributes = [("txBox", 1)]
 
         self._xml_empty_tag("xdr:cNvSpPr", attributes)
@@ -565,32 +596,48 @@ class Drawing(xmlwriter.XMLwriter):
 
     def _write_pic(
         self,
-        index: int,
-        col_absolute: int,
-        row_absolute: int,
-        drawing: DrawingInfo,
+        index,
+        rel_index,
+        col_absolute,
+        row_absolute,
+        width,
+        height,
+        shape,
+        description,
+        url_rel_index,
+        tip,
+        decorative,
     ):
         # Write the <xdr:pic> element.
         self._xml_start_tag("xdr:pic")
 
         # Write the xdr:nvPicPr element.
-        self._write_nv_pic_pr(index, drawing)
+        self._write_nv_pic_pr(
+            index, rel_index, description, url_rel_index, tip, decorative
+        )
         # Write the xdr:blipFill element.
-        self._write_blip_fill(drawing._rel_index)
+        self._write_blip_fill(rel_index)
 
         # Write the xdr:spPr element.
-        self._write_sp_pr(col_absolute, row_absolute, drawing)
+        self._write_sp_pr(col_absolute, row_absolute, width, height, shape)
 
         self._xml_end_tag("xdr:pic")
 
-    def _write_nv_pic_pr(self, index: int, drawing: DrawingInfo):
+    def _write_nv_pic_pr(
+        self, index, rel_index, description, url_rel_index, tip, decorative
+    ):
         # Write the <xdr:nvPicPr> element.
         self._xml_start_tag("xdr:nvPicPr")
 
-        name = "Picture " + str(index)
-
         # Write the xdr:cNvPr element.
-        self._write_c_nv_pr(index + 1, drawing, name)
+        self._write_c_nv_pr(
+            index + 1,
+            "Picture " + str(index),
+            description,
+            url_rel_index,
+            tip,
+            decorative,
+        )
 
         # Write the xdr:cNvPicPr element.
         self._write_c_nv_pic_pr()
@@ -612,7 +659,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_empty_tag("a:picLocks", attributes)
 
-    def _write_blip_fill(self, index: int):
+    def _write_blip_fill(self, index):
         # Write the <xdr:blipFill> element.
         self._xml_start_tag("xdr:blipFill")
 
@@ -624,7 +671,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_end_tag("xdr:blipFill")
 
-    def _write_a_blip(self, index: int):
+    def _write_a_blip(self, index):
         # Write the <a:blip> element.
         schema = "http://schemas.openxmlformats.org/officeDocument/"
         xmlns_r = schema + "2006/relationships"
@@ -647,32 +694,27 @@ class Drawing(xmlwriter.XMLwriter):
         # Write the <a:fillRect> element.
         self._xml_empty_tag("a:fillRect")
 
-    def _write_sp_pr(self, col_absolute, row_absolute, drawing: DrawingInfo):
+    def _write_sp_pr(self, col_absolute, row_absolute, width, height, shape=None):
         # Write the <xdr:spPr> element, for charts.
 
         self._xml_start_tag("xdr:spPr")
 
         # Write the a:xfrm element.
-        self._write_a_xfrm(col_absolute, row_absolute, drawing._width, drawing._height)
+        self._write_a_xfrm(col_absolute, row_absolute, width, height)
 
         # Write the a:prstGeom element.
-        self._write_a_prst_geom(drawing._shape)
+        self._write_a_prst_geom(shape)
 
         self._xml_end_tag("xdr:spPr")
 
-    def _write_xdr_sp_pr(
-        self, col_absolute: int, row_absolute: int, drawing: DrawingInfo
-    ):
+    def _write_xdr_sp_pr(self, index, col_absolute, row_absolute, width, height, shape):
         # Write the <xdr:spPr> element for shapes.
         self._xml_start_tag("xdr:spPr")
 
         # Write the a:xfrm element.
-        self._write_a_xfrm(
-            col_absolute, row_absolute, drawing._width, drawing._height, drawing._shape
-        )
+        self._write_a_xfrm(col_absolute, row_absolute, width, height, shape)
 
         # Write the a:prstGeom element.
-        shape = drawing._shape
         self._write_a_prst_geom(shape)
 
         if shape.fill:
@@ -684,7 +726,7 @@ class Drawing(xmlwriter.XMLwriter):
                 self._xml_empty_tag("a:noFill")
             elif "color" in shape.fill:
                 # Write the a:solidFill element.
-                self._write_a_solid_fill(_get_rgb_color(shape.fill["color"]))
+                self._write_a_solid_fill(get_rgb_color(shape.fill["color"]))
 
         if shape.gradient:
             # Write the a:gradFill element.
@@ -825,7 +867,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         elif "color" in line:
             # Write the a:solidFill element.
-            self._write_a_solid_fill(_get_rgb_color(line["color"]))
+            self._write_a_solid_fill(get_rgb_color(line["color"]))
 
         else:
             # Write the a:solidFill element.
@@ -839,7 +881,7 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_end_tag("a:ln")
 
-    def _write_tx_body(self, shape):
+    def _write_tx_body(self, col_absolute, row_absolute, width, height, shape):
         # Write the <xdr:txBody> element.
         attributes = []
 
@@ -885,7 +927,6 @@ class Drawing(xmlwriter.XMLwriter):
 
         # Set the font attributes.
         font = shape.font
-        # pylint: disable=protected-access
         style_attrs = Shape._get_font_style_attributes(font)
         latin_attrs = Shape._get_font_latin_attributes(font)
         style_attrs.insert(0, ("lang", font["lang"]))
@@ -915,8 +956,7 @@ class Drawing(xmlwriter.XMLwriter):
                     self._write_font_run(font, style_attrs, latin_attrs, "a:endParaRPr")
                     self._xml_end_tag("a:p")
                     continue
-
-                if "text" in shape.align:
+                elif "text" in shape.align:
                     if shape.align["text"] == "left":
                         self._xml_empty_tag("a:pPr", [("algn", "l")])
                     if shape.align["text"] == "center":
@@ -937,13 +977,16 @@ class Drawing(xmlwriter.XMLwriter):
 
     def _write_font_run(self, font, style_attrs, latin_attrs, run_type):
         # Write a:rPr or a:endParaRPr.
-        has_color = font.get("color") is not None
+        if font.get("color") is not None:
+            has_color = True
+        else:
+            has_color = False
 
         if latin_attrs or has_color:
             self._xml_start_tag(run_type, style_attrs)
 
             if has_color:
-                self._write_a_solid_fill(_get_rgb_color(font["color"]))
+                self._write_a_solid_fill(get_rgb_color(font["color"]))
 
             if latin_attrs:
                 self._write_a_latin(latin_attrs)
@@ -1077,13 +1120,13 @@ class Drawing(xmlwriter.XMLwriter):
 
         self._xml_start_tag("a:gsLst")
 
-        for i, color in enumerate(colors):
+        for i in range(len(colors)):
             pos = int(positions[i] * 1000)
             attributes = [("pos", pos)]
             self._xml_start_tag("a:gs", attributes)
 
             # Write the a:srgbClr element.
-            color = _get_rgb_color(color)
+            color = get_rgb_color(colors[i])
             self._write_a_srgb_clr(color)
 
             self._xml_end_tag("a:gs")

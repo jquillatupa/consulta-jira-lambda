@@ -3,8 +3,7 @@
 # ChartLine - A class for writing the Excel XLSX Line charts.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 from . import chart
@@ -28,7 +27,7 @@ class ChartLine(chart.Chart):
         Constructor.
 
         """
-        super().__init__()
+        super(ChartLine, self).__init__()
 
         if options is None:
             options = {}
@@ -85,7 +84,7 @@ class ChartLine(chart.Chart):
         else:
             series = self._get_secondary_axes_series()
 
-        if not series:
+        if not len(series):
             return
 
         subtype = self.subtype

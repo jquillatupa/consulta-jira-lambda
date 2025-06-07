@@ -3,17 +3,16 @@
 # Relationships - A class for writing the Excel XLSX Worksheet file.
 #
 # SPDX-License-Identifier: BSD-2-Clause
-#
-# Copyright (c) 2013-2025, John McNamara, jmcnamara@cpan.org
+# Copyright 2013-2023, John McNamara, jmcnamara@cpan.org
 #
 
 # Package imports.
 from . import xmlwriter
 
 # Long namespace strings used in the class.
-SCHEMA_ROOT = "http://schemas.openxmlformats.org"
-PACKAGE_SCHEMA = SCHEMA_ROOT + "/package/2006/relationships"
-DOCUMENT_SCHEMA = SCHEMA_ROOT + "/officeDocument/2006/relationships"
+schema_root = "http://schemas.openxmlformats.org"
+package_schema = schema_root + "/package/2006/relationships"
+document_schema = schema_root + "/officeDocument/2006/relationships"
 
 
 class Relationships(xmlwriter.XMLwriter):
@@ -35,7 +34,7 @@ class Relationships(xmlwriter.XMLwriter):
 
         """
 
-        super().__init__()
+        super(Relationships, self).__init__()
 
         self.relationships = []
         self.id = 1
@@ -59,13 +58,13 @@ class Relationships(xmlwriter.XMLwriter):
 
     def _add_document_relationship(self, rel_type, target, target_mode=None):
         # Add container relationship to XLSX .rels xml files.
-        rel_type = DOCUMENT_SCHEMA + rel_type
+        rel_type = document_schema + rel_type
 
         self.relationships.append((rel_type, target, target_mode))
 
     def _add_package_relationship(self, rel_type, target):
         # Add container relationship to XLSX .rels xml files.
-        rel_type = PACKAGE_SCHEMA + rel_type
+        rel_type = package_schema + rel_type
 
         self.relationships.append((rel_type, target, None))
 
@@ -74,33 +73,6 @@ class Relationships(xmlwriter.XMLwriter):
         schema = "http://schemas.microsoft.com/office/2006/relationships"
         rel_type = schema + rel_type
 
-        self.relationships.append((rel_type, target, None))
-
-    def _add_rich_value_relationship(self):
-        # Add RichValue relationship to XLSX .rels xml files.
-        schema = "http://schemas.microsoft.com/office/2022/10/relationships/"
-        rel_type = schema + "richValueRel"
-        target = "richData/richValueRel.xml"
-        self.relationships.append((rel_type, target, None))
-
-        schema = "http://schemas.microsoft.com/office/2017/06/relationships/"
-        rel_type = schema + "rdRichValue"
-        target = "richData/rdrichvalue.xml"
-        self.relationships.append((rel_type, target, None))
-
-        rel_type = schema + "rdRichValueStructure"
-        target = "richData/rdrichvaluestructure.xml"
-        self.relationships.append((rel_type, target, None))
-
-        rel_type = schema + "rdRichValueTypes"
-        target = "richData/rdRichValueTypes.xml"
-        self.relationships.append((rel_type, target, None))
-
-    def _add_feature_bag_relationship(self):
-        # Add FeaturePropertyBag relationship to XLSX .rels xml files.
-        schema = "http://schemas.microsoft.com/office/2022/11/relationships/"
-        rel_type = schema + "FeaturePropertyBag"
-        target = "featurePropertyBag/featurePropertyBag.xml"
         self.relationships.append((rel_type, target, None))
 
     ###########################################################################
@@ -114,7 +86,7 @@ class Relationships(xmlwriter.XMLwriter):
         attributes = [
             (
                 "xmlns",
-                PACKAGE_SCHEMA,
+                package_schema,
             )
         ]
 

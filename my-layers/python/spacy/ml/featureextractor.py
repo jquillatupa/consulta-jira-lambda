@@ -1,14 +1,12 @@
-from typing import Callable, List, Tuple, Union
-
-from thinc.api import Model, registry
+from typing import List, Union, Callable, Tuple
 from thinc.types import Ints2d
+from thinc.api import Model, registry
 
 from ..tokens import Doc
 
 
-def FeatureExtractor(
-    columns: Union[List[str], List[int], List[Union[int, str]]]
-) -> Model[List[Doc], List[Ints2d]]:
+@registry.layers("spacy.FeatureExtractor.v1")
+def FeatureExtractor(columns: List[Union[int, str]]) -> Model[List[Doc], List[Ints2d]]:
     return Model("extract_features", forward, attrs={"columns": columns})
 
 
