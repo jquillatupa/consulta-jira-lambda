@@ -1,23 +1,49 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: 'Plantilla SAM para validar historias Jira y generar reporte en S3.
-
-  '
+Description: "Plantilla SAM para ValidarHU con 3 layers y funci\xF3n en Python 3.10"
 Globals:
   Function:
     Runtime: python3.10
     Timeout: 900
     MemorySize: 1024
 Resources:
-  ValidarHUFunctionLayer:
+  DataScienceLayer:
     Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
+      SamResourceId: DataScienceLayer
     Properties:
-      LayerName: validar-hu-libs
-      Description: Dependencias Python para Jira + pandas + openpyxl + xlsxwriter
-      ContentUri: ..\..\my-layers
+      LayerName: "validarhu\u2010science"
+      Description: "pandas, numpy, openpyxl, XlsxWriter,  python\u2010dateutil, pytz\n"
+      ContentUri: DataScienceLayer
       CompatibleRuntimes:
       - python3.10
-      LicenseInfo: MIT
+  HttpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
+      SamResourceId: HttpLayer
+    Properties:
+      LayerName: "validarhu\u2010http"
+      Description: 'jira, requests
+
+        '
+      ContentUri: HttpLayer
+      CompatibleRuntimes:
+      - python3.10
+  NlpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
+      SamResourceId: NlpLayer
+    Properties:
+      LayerName: "validarhu\u2010nlp"
+      Description: 'spaCy + es_core_news_sm
+
+        '
+      ContentUri: NlpLayer
+      CompatibleRuntimes:
+      - python3.10
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -26,7 +52,9 @@ Resources:
       CodeUri: ValidarHUFunction
       Runtime: python3.10
       Layers:
-      - Ref: ValidarHUFunctionLayer
+      - Ref: DataScienceLayer
+      - Ref: HttpLayer
+      - Ref: NlpLayer
       Environment:
         Variables:
           JIRA_DOMAIN:
@@ -46,13 +74,13 @@ Resources:
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: 'Dominio de Jira (por ejemplo: miempresa.atlassian.net)'
+    Description: Dominio de Jira (p.ej. miempresa.atlassian.net)
   JiraUserParam:
     Type: String
-    Description: Usuario de Jira
+    Description: Usuario de Jira (email)
   JiraApiTokenParam:
     Type: String
     Description: API token de Jira
   OutputS3Bucket:
     Type: String
-    Description: "Nombre del bucket S3 donde se subir\xE1n los reportes"
+    Description: Bucket S3 donde subiremos los reportes

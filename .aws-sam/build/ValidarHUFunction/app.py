@@ -21,34 +21,24 @@ logger.setLevel(logging.INFO)
 # ---------------------------------------------------
 # 1) Configuración inicial
 # ---------------------------------------------------
-# Rango de fechas (ajusta según necesites)
 START_DATE = datetime(2025, 1, 1)
 END_DATE   = datetime(2025, 3, 31, 23, 59, 59)
-
-# IDs de categoría en Jira que nos interesan
 IDS_CATEGORIAS = ["10008", "10009"]
-
-# Campo de “Criterios de aceptación”
 CUSTOM_FIELD_ID = "customfield_10031"
+P1 = 20
+P2 = 20
+P3 = 15
+P4 = 20
+P5 = 10
+P6 = 15
 
-# Puntuaciones
-P1 = 20   # Descripción
-P2 = 20   # Criterios de Aceptación
-P3 = 15   # Asignatario
-P4 = 20   # Subtareas
-P5 = 10   # Épica Principal
-P6 = 15   # Backlog Priorizado
-
-# Aseguramos modelo spaCy (español)
 try:
     nlp = spacy.load("es_core_news_sm")
 except OSError:
     spacy_download("es_core_news_sm")
     nlp = spacy.load("es_core_news_sm")
 
-# Cliente S3
 s3 = boto3.client("s3")
-
 
 # ---------------------------------------------------
 # 2) Funciones auxiliares para scoring
@@ -135,30 +125,25 @@ def fetch_projects_by_category(category_id, jira_domain, jira_user, jira_api_tok
         start_at += data.get("maxResults", max_results)
     return all_values
 
-
 # ---------------------------------------------------
 # 4) Lambda handler
 # ---------------------------------------------------
 def lambda_handler(event, context):
-    # leer env vars
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
     jira_api_token = os.getenv("JIRA_API_TOKEN")
     bucket         = os.getenv("OUTPUT_S3_BUCKET")
 
-    # validar
     faltan = [v for v in ["JIRA_DOMAIN","JIRA_USER","JIRA_API_TOKEN","OUTPUT_S3_BUCKET"] if not os.getenv(v)]
     if faltan:
         return {"statusCode":400, "body": json.dumps({"error":f"Faltan vars: {faltan}"})}
 
-    # autenticar JIRA
     try:
         jira = JIRA({"server":jira_domain}, basic_auth=(jira_user, jira_api_token))
     except Exception as e:
         logger.exception("No se pudo autenticar en Jira")
         return {"statusCode":500, "body":json.dumps({"error":"Autenticación Jira fallida","details":str(e)})}
 
-    # obtener proyectos filtrados
     proyectos = []
     vistos     = set()
     for cat in IDS_CATEGORIAS:
@@ -174,7 +159,6 @@ def lambda_handler(event, context):
 
     PROJECT_KEYS = [p["key"] for p in proyectos]
 
-    # recorrer cada proyecto y sus historias
     data  = []
     no_issues = []
     for pk in PROJECT_KEYS:
@@ -185,7 +169,6 @@ def lambda_handler(event, context):
         if not issues:
             no_issues.append(pk)
         for issue in issues:
-            # extraer último estado en periodo
             ultimo = None
             for h in issue.changelog.histories:
                 dt = datetime.strptime(h.created[:19], "%Y-%m-%dT%H:%M:%S")
@@ -210,44 +193,44 @@ def lambda_handler(event, context):
                 "Número de Sub-tareas": len(issue.fields.subtasks)
             })
 
-    # 5) Exportar primer excel (raw) a /tmp y subir a DataJira
+    # 5) Exportar primer excel (raw)
     df = pd.DataFrame(data)
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     tmp1 = f"/tmp/jira_data_{ts}.xlsx"
     df.to_excel(tmp1, sheet_name="Stories", index=False)
-
     key1 = f"reports/DataJira/jira_data_{ts}.xlsx"
     s3.upload_file(tmp1, bucket, key1)
 
-    # ---------------------------------------------------
-    # 6) Scoring y generación de segundo excel
-    # ---------------------------------------------------
+    # 6) Scoring y segundo excel
     df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
     df["Puntaje Criterios"]   = df["Criterios de aceptación"].apply(evaluar_criterios)
-    df["Puntaje Asignatario"] = df["Assignee"].apply(evaluar_asignatario)
+    df["Puntaje Asignatario"]  = df["Assignee"].apply(evaluar_asignatario)
     df["Puntaje Subtareas"]   = df["Número de Sub-tareas"].apply(evaluar_subtareas)
     df["Puntaje Épica"]       = df["Epica Principal"].apply(evaluar_epica)
 
-    # flag backlog
-    backlog_flag = df.groupby("Proyecto")["Status"]\
+    backlog_flag = df.groupby("Proyecto")["Status"] \
                      .apply(lambda s: P6 if s.str.lower().eq("backlog priorizado").any() else 0)
-    # resumen por proyecto
-    resumen = df.groupby(
-        ["Proyecto","Nombre del Proyecto","Responsable Proyecto"]
-    )["Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario","Puntaje Subtareas","Puntaje Épica"]\
-     .mean().reset_index()
 
-    resumen["C6 Backlog"]       = resumen["Proyecto"].map(backlog_flag)
-    resumen["Puntaje Total"]    = resumen[[
-        "Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario",
-        "Puntaje Subtareas","Puntaje Épica","C6 Backlog"
+    # ← Aquí está la corrección: dobles corchetes para seleccionar varias columnas
+    resumen = (
+        df
+        .groupby(["Proyecto", "Nombre del Proyecto", "Responsable Proyecto"])
+        [["Puntaje Descripción", "Puntaje Criterios", "Puntaje Asignatario", "Puntaje Subtareas", "Puntaje Épica"]]
+        .mean()
+        .reset_index()
+    )
+
+    resumen["C6 Backlog"]    = resumen["Proyecto"].map(backlog_flag)
+    resumen["Puntaje Total"] = resumen[[
+        "Puntaje Descripción", "Puntaje Criterios", "Puntaje Asignatario",
+        "Puntaje Subtareas", "Puntaje Épica", "C6 Backlog"
     ]].sum(axis=1)
-    # clasificación
+
     def cls(v):
         return ("Excelente" if v>=90 else
-                "Adecuado" if v>=80 else
+                "Adecuado"   if v>=80 else
                 "Por mejorar" if v>=65 else
-                "Incompleto" if v>=50 else
+                "Incompleto"  if v>=50 else
                 "Desastre")
     resumen["Clasificación"] = resumen["Puntaje Total"].apply(cls)
 
@@ -256,24 +239,23 @@ def lambda_handler(event, context):
     with pd.ExcelWriter(tmp2, engine="xlsxwriter") as w:
         df.to_excel(w, sheet_name="User Stories", index=False)
         resumen.to_excel(w, sheet_name="Resumen por Proyecto", index=False)
-
-        # formato numérico (2 decimales) en Resumen
-        book  = w.book
-        ws    = w.sheets["Resumen por Proyecto"]
-        fmt   = book.add_format({"num_format":"0.00"})
-        for i,col in enumerate(resumen.columns):
-            if col in ["Puntaje Descripción","Puntaje Criterios","Puntaje Asignatario",
-                       "Puntaje Subtareas","Puntaje Épica","Puntaje Total"]:
+        book = w.book
+        ws   = w.sheets["Resumen por Proyecto"]
+        fmt  = book.add_format({"num_format":"0.00"})
+        for i, col in enumerate(resumen.columns):
+            if col in [
+                "Puntaje Descripción", "Puntaje Criterios", "Puntaje Asignatario",
+                "Puntaje Subtareas", "Puntaje Épica", "Puntaje Total"
+            ]:
                 letter = xl_col_to_name(i)
                 ws.set_column(f"{letter}:{letter}", None, fmt)
 
     key2 = f"reports/Analizado/jira_data_anali_{ts}.xlsx"
     s3.upload_file(tmp2, bucket, key2)
 
-    # 8) Generar URL pre-firmada del analizado
     url2 = s3.generate_presigned_url(
         "get_object",
-        Params={"Bucket":bucket, "Key":key2},
+        Params={"Bucket": bucket, "Key": key2},
         ExpiresIn=3600
     )
 
@@ -281,7 +263,7 @@ def lambda_handler(event, context):
         "statusCode": 200,
         "body": json.dumps({
             "message": "Reportes generados correctamente",
-            "raw_report":     f"https://{bucket}.s3.amazonaws.com/{key1}",
+            "raw_report":       f"https://{bucket}.s3.amazonaws.com/{key1}",
             "analizado_report": url2
         })
     }

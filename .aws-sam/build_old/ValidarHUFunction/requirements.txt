@@ -1,5 +1,0 @@
-# hello_world/requirements.txt
-
-jira>=3.0.1
-spacy>=3.5.0
-openpyxl>=3.0.0

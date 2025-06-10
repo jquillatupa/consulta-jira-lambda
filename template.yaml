@@ -1,41 +1,75 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >
-  Plantilla SAM para validar historias Jira y generar reporte en S3.
+Description: Plantilla SAM para ValidarHU con 3 layers y función en Python 3.10
 
 Globals:
   Function:
-    Runtime: python3.10        # <-- Runtime de la función
-    Timeout: 900
+    Runtime: python3.10
+    Timeout: 900       # 15 minutos (900 segundos) para consultas largas a Jira
     MemorySize: 1024
 
 Resources:
 
-  ##############################
-  # 1) LAYER con librerías "pesadas"
-  ##############################
-  ValidarHUFunctionLayer:
+  ###################################
+  # 1) Capa DataScienceLayer
+  ###################################
+  DataScienceLayer:
     Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
     Properties:
-      LayerName: validar-hu-libs
-      Description: "Dependencias Python para Jira + pandas + openpyxl + xlsxwriter"
-      ContentUri: my-layers/          # SAM empaqueta todo lo que haya dentro de my-layers/python
+      LayerName: validarhu‐science
+      Description: > 
+        pandas, numpy, openpyxl, XlsxWriter, 
+        python‐dateutil, pytz
+      ContentUri: my‐layers/science/
       CompatibleRuntimes:
-        - python3.10             # <-- Mantener consistencia con el runtime de la función
-      LicenseInfo: "MIT"
+        - python3.10
 
-  ##############################
-  # 2) FUNCIÓN Lambda
-  ##############################
+  ###################################
+  # 2) Capa HttpLayer
+  ###################################
+  HttpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
+    Properties:
+      LayerName: validarhu‐http
+      Description: > 
+        jira, requests
+      ContentUri: my‐layers/http/
+      CompatibleRuntimes:
+        - python3.10
+
+  ###################################
+  # 3) Capa NlpLayer
+  ###################################
+  NlpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.10
+    Properties:
+      LayerName: validarhu‐nlp
+      Description: > 
+        spaCy + es_core_news_sm
+      ContentUri: my‐layers/nlp/
+      CompatibleRuntimes:
+        - python3.10
+
+  ###################################
+  # 4) Función Lambda principal
+  ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       Handler: app.lambda_handler
-      CodeUri: hello_world/       # Carpeta donde está app.py y las dependencias mínimas
-      Runtime: python3.10         # <-- Asegurarse de que coincida con Globals.Function.Runtime
+      CodeUri: hello_world/
+      Runtime: python3.10
       Layers:
-        - !Ref ValidarHUFunctionLayer
+        - !Ref DataScienceLayer
+        - !Ref HttpLayer
+        - !Ref NlpLayer
       Environment:
         Variables:
           JIRA_DOMAIN:     !Ref JiraDomainParam
@@ -49,13 +83,13 @@ Resources:
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira (por ejemplo: miempresa.atlassian.net)"
+    Description: "Dominio de Jira (p.ej. miempresa.atlassian.net)"
   JiraUserParam:
     Type: String
-    Description: "Usuario de Jira"
+    Description: "Usuario de Jira (email)"
   JiraApiTokenParam:
     Type: String
     Description: "API token de Jira"
   OutputS3Bucket:
     Type: String
-    Description: "Nombre del bucket S3 donde se subirán los reportes"
+    Description: "Bucket S3 donde subiremos los reportes"
