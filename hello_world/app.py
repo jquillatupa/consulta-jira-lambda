@@ -96,7 +96,7 @@ def evaluar_epica(p):
     return P5 if isinstance(p, str) and p.strip() else 0
 
 # ---------------------------------------------------
-# 3) Función para extraer proyectos por categoría
+# 3) Función para extraer proyectos por categoríaa
 # ---------------------------------------------------
 HEADERS = {"Accept":"application/json"}
 
