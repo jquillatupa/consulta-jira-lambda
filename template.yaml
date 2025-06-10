@@ -18,11 +18,8 @@ Resources:
     Metadata:
       BuildMethod: python3.10
     Properties:
-      LayerName: validarhu‐science
-      Description: > 
-        pandas, numpy, openpyxl, XlsxWriter, 
-        python‐dateutil, pytz
-      ContentUri: my‐layers/science/
+      Description: Dependencias DataScience
+      ContentUri: my-layers/science/
       CompatibleRuntimes:
         - python3.10
 
@@ -34,10 +31,8 @@ Resources:
     Metadata:
       BuildMethod: python3.10
     Properties:
-      LayerName: validarhu‐http
-      Description: > 
-        jira, requests
-      ContentUri: my‐layers/http/
+      Description: Dependencias HTTP/Jira
+      ContentUri: my-layers/http/
       CompatibleRuntimes:
         - python3.10
 
@@ -49,10 +44,8 @@ Resources:
     Metadata:
       BuildMethod: python3.10
     Properties:
-      LayerName: validarhu‐nlp
-      Description: > 
-        spaCy + es_core_news_sm
-      ContentUri: my‐layers/nlp/
+      Description: Dependencias NLP
+      ContentUri: my-layers/nlp/
       CompatibleRuntimes:
         - python3.10
 
@@ -72,9 +65,9 @@ Resources:
         - !Ref NlpLayer
       Environment:
         Variables:
-          JIRA_DOMAIN:     !Ref JiraDomainParam
-          JIRA_USER:       !Ref JiraUserParam
-          JIRA_API_TOKEN:  !Ref JiraApiTokenParam
+          JIRA_DOMAIN:      !Ref JiraDomainParam
+          JIRA_USER:        !Ref JiraUserParam
+          JIRA_API_TOKEN:   !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3Bucket
       Policies:
         - S3CrudPolicy:

@@ -9,27 +9,27 @@ manifest_hash = ""
 packagetype = "Zip"
 functions = ["ValidarHUFunction"]
 
-[layer_build_definitions.5962070b-a223-41a3-832f-6c7b5e5f2139]
+[layer_build_definitions.bd4bb54c-c6bc-4d1e-891d-f833fcd08461]
 layer_name = "DataScienceLayer"
-codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my‐layers\\science"
+codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my-layers\\science"
 build_method = "python3.10"
 compatible_runtimes = ["python3.10"]
 architecture = "x86_64"
 manifest_hash = ""
 layer = "DataScienceLayer"
 
-[layer_build_definitions.9e8ed583-4d13-491c-9604-e20ebe62918e]
+[layer_build_definitions.d6db283d-a5d8-4284-b6a3-7da29159c140]
 layer_name = "HttpLayer"
-codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my‐layers\\http"
+codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my-layers\\http"
 build_method = "python3.10"
 compatible_runtimes = ["python3.10"]
 architecture = "x86_64"
 manifest_hash = ""
 layer = "HttpLayer"
 
-[layer_build_definitions.44940023-74b0-4d9b-aa12-9a464201c09c]
+[layer_build_definitions.eb3b5680-6a66-4d8c-95c0-b25cf2897a7d]
 layer_name = "NlpLayer"
-codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my‐layers\\nlp"
+codeuri = "D:\\AWS\\Project\\ValidarHU\\consulta-jira-lambda\\my-layers\\nlp"
 build_method = "python3.10"
 compatible_runtimes = ["python3.10"]
 architecture = "x86_64"
