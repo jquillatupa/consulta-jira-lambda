@@ -22,6 +22,11 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
+      - name: 🛠️ Remove hardcoded ImageUri
+        run: |
+          # Elimina cualquier línea ImageUri de la plantilla
+          sed -i '/ImageUri:/d' template.yaml
+
       - name: 🔑 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -44,9 +49,7 @@ jobs:
       - name: 🏗️ Build & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          # 1) Construye sólo con ese tag
           docker build -t $IMAGE_URI .
-          # 2) Push al ECR
           docker push $IMAGE_URI
 
       - name: 🏗️ SAM Build
@@ -55,7 +58,6 @@ jobs:
 
       - name: 🚀 SAM Deploy
         run: |
-          # Re-creamos IMAGE_URI en este paso
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
           sam deploy \
             --stack-name       $STACK_NAME \
@@ -70,4 +72,3 @@ jobs:
                 OutputS3Bucket=$OUTPUT_S3_BUCKET \
             --no-fail-on-empty-changeset \
             --no-confirm-changeset
-
