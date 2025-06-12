@@ -55,6 +55,8 @@ jobs:
 
       - name: 🚀 SAM Deploy
         run: |
+          # Re-creamos IMAGE_URI en este paso
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
           sam deploy \
             --stack-name       $STACK_NAME \
             --region           $AWS_REGION \
