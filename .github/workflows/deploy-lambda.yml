@@ -44,7 +44,10 @@ jobs:
       - name: 🏗️ Build, Tag & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          docker build -t $IMAGE_URI .
+          docker build \
+            -t validarhu-lambda:latest \
+            -t $IMAGE_URI \
+            .
           docker push $IMAGE_URI
 
       - name: 🏗️ SAM Build
