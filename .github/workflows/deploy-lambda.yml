@@ -47,12 +47,9 @@ jobs:
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
-      - name: 🏗️ SAM Build (container image)
+      - name: 🏗️ SAM Build
         run: |
-          sam build \
-            --cached \
-            --use-container \
-            --image-repository "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+          sam build --cached --use-container
 
       - name: 🚀 SAM Deploy
         run: |
