@@ -41,11 +41,13 @@ jobs:
           aws ecr describe-repositories --repository-names $ECR_REPOSITORY \
             || aws ecr create-repository --repository-name $ECR_REPOSITORY
 
-      - name: 🏗️ Build, Tag & Push Docker image
+      - name: 🏗️ Build & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          # 1) Construye sólo con ese tag
           docker build -t $IMAGE_URI .
-          docker push  $IMAGE_URI
+          # 2) Push al ECR
+          docker push $IMAGE_URI
 
       - name: 🏗️ SAM Build
         run: |
