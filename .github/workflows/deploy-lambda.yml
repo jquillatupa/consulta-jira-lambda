@@ -58,6 +58,7 @@ jobs:
             --region $AWS_REGION \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --resolve-image-repos \
+            --resolve-s3 \
             --parameter-overrides \
                 JiraDomainParam=$JIRA_DOMAIN \
                 JiraUserParam=$JIRA_USER \
