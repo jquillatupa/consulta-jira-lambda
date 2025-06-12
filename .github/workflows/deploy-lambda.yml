@@ -44,11 +44,8 @@ jobs:
       - name: 🏗️ Build, Tag & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          docker build \
-            -t validarhu-lambda:latest \
-            -t $IMAGE_URI \
-            .
-          docker push $IMAGE_URI
+          docker build -t $IMAGE_URI .
+          docker push  $IMAGE_URI
 
       - name: 🏗️ SAM Build
         run: |
@@ -58,9 +55,9 @@ jobs:
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
           sam deploy \
-            --stack-name $STACK_NAME \
-            --region $AWS_REGION \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --stack-name       $STACK_NAME \
+            --region           $AWS_REGION \
+            --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --image-repositories "ValidarHUFunction=${IMAGE_URI}" \
             --resolve-s3 \
             --parameter-overrides \
@@ -70,3 +67,4 @@ jobs:
                 OutputS3Bucket=$OUTPUT_S3_BUCKET \
             --no-fail-on-empty-changeset \
             --no-confirm-changeset
+
