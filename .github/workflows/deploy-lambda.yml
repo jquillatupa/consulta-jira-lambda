@@ -53,11 +53,12 @@ jobs:
 
       - name: 🚀 SAM Deploy
         run: |
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
           sam deploy \
             --stack-name $STACK_NAME \
             --region $AWS_REGION \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --resolve-image-repos \
+            --image-repositories "ValidarHUFunction=${IMAGE_URI}" \
             --resolve-s3 \
             --parameter-overrides \
                 JiraDomainParam=$JIRA_DOMAIN \
