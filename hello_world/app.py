@@ -9,6 +9,7 @@ import boto3
 import pandas as pd
 import requests
 import spacy
+import es_core_news_sm
 
 from datetime import datetime
 from jira import JIRA
@@ -33,10 +34,10 @@ P5 = 10
 P6 = 15
 
 try:
-    nlp = spacy.load("es_core_news_sm")
+    nlp = es_core_news_sm.load()
 except OSError:
-    spacy_download("es_core_news_sm")
-    nlp = spacy.load("es_core_news_sm")
+    #spacy_download("es_core_news_sm")
+    nlp = es_core_news_sm.load()
 
 s3 = boto3.client("s3")
 

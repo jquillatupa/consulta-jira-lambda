@@ -1,40 +1,27 @@
-name: Build and Deploy SAM Application
+name: Build and Deploy SAM Container Applicationn
 
 on:
   push:
     branches:
       - main
 
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_REPOSITORY: validarhu-lambda
+  STACK_NAME: mi-stack-jira
+  JIRA_DOMAIN:      ${{ secrets.JIRA_DOMAIN }}
+  JIRA_USER:        ${{ secrets.JIRA_USER }}
+  JIRA_API_TOKEN:   ${{ secrets.JIRA_API_TOKEN }}
+  OUTPUT_S3_BUCKET: reportes-jira-mi-proyecto-20
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-    env:
-      AWS_REGION: us-east-1
-      STACK_NAME: mi-stack-jira
-      JIRA_DOMAIN:      ${{ secrets.JIRA_DOMAIN }}
-      JIRA_USER:        ${{ secrets.JIRA_USER }}
-      JIRA_API_TOKEN:   ${{ secrets.JIRA_API_TOKEN }}
-      OUTPUT_S3_BUCKET: reportes-jira-mi-proyecto-20
-
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python 3.10
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: 🔍 Check default Python version
-        run: |
-          python --version
-          python3 --version
-
-      - name: 🔧 Install AWS CLI & AWS SAM CLI
-        run: |
-          python -m pip install --upgrade pip
-          pip install awscli aws-sam-cli
 
       - name: 🔑 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -43,26 +30,43 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
-      - name: 🏗️ SAM Build
-        run: |
-          sam build --cached --use-container
+      - name: 🐳 Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
 
-      - name: 📦 SAM Package
+      - name: 🏷️ Create ECR repo if not exists
         run: |
-          sam package \
-            --output-template-file packaged.yaml \
-            --s3-bucket $OUTPUT_S3_BUCKET
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY \
+            || aws ecr create-repository --repository-name $ECR_REPOSITORY
+
+      - name: 🏗️ Build Docker image
+        run: |
+          docker build \
+            -t $ECR_REPOSITORY:$GITHUB_SHA \
+            .
+
+      - name: 🏷️ Tag & Push to ECR
+        run: |
+          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$GITHUB_SHA"
+          docker tag $ECR_REPOSITORY:$GITHUB_SHA $IMAGE_URI
+          docker push $IMAGE_URI
+
+      - name: 🏗️ SAM Build (container image)
+        run: |
+          sam build \
+            --cached \
+            --use-container \
+            --image-repository "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
 
       - name: 🚀 SAM Deploy
         run: |
           sam deploy \
-            --template-file packaged.yaml \
             --stack-name $STACK_NAME \
+            --region $AWS_REGION \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              JiraDomainParam=$JIRA_DOMAIN \
-              JiraUserParam=$JIRA_USER \
-              JiraApiTokenParam=$JIRA_API_TOKEN \
-              OutputS3Bucket=$OUTPUT_S3_BUCKET \
+                JiraDomainParam=$JIRA_DOMAIN \
+                JiraUserParam=$JIRA_USER \
+                JiraApiTokenParam=$JIRA_API_TOKEN \
+                OutputS3Bucket=$OUTPUT_S3_BUCKET \
             --no-fail-on-empty-changeset \
             --no-confirm-changeset

@@ -1,0 +1,11 @@
+numpy==1.25.2
+pandas
+openpyxl
+XlsxWriter
+requests
+jira
+pydantic
+spacy==3.6.0
+python-dateutil
+pytz
+

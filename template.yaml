@@ -1,68 +1,25 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Plantilla SAM para ValidarHU con 3 layers y función en Python 3.10
+Description: "Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10"
 
 Globals:
   Function:
-    Runtime: python3.10
-    Timeout: 900       # 15 minutos (900 segundos) para consultas largas a Jira
+    Timeout: 900       # 15 minutos
     MemorySize: 1024
 
 Resources:
 
   ###################################
-  # 1) Capa DataScienceLayer
-  ###################################
-  DataScienceLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-    Properties:
-      Description: Dependencias DataScience
-      ContentUri: my-layers/science/
-      CompatibleRuntimes:
-        - python3.10
-
-  ###################################
-  # 2) Capa HttpLayer
-  ###################################
-  HttpLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-    Properties:
-      Description: Dependencias HTTP/Jira
-      ContentUri: my-layers/http/
-      CompatibleRuntimes:
-        - python3.10
-
-  ###################################
-  # 3) Capa NlpLayer
-  ###################################
-  NlpLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-    Properties:
-      Description: Dependencias NLP
-      ContentUri: my-layers/nlp/
-      CompatibleRuntimes:
-        - python3.10
-
-  ###################################
-  # 4) Función Lambda principal
+  # Función empaquetada como imagen
   ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
-      Handler: app.lambda_handler
-      CodeUri: hello_world/
-      Runtime: python3.10
-      Layers:
-        - !Ref DataScienceLayer
-        - !Ref HttpLayer
-        - !Ref NlpLayer
+      PackageType: Image
+      ImageUri: validarhu-lambda:latest
+      ImageConfig:
+        Command: ["app.lambda_handler"]
       Environment:
         Variables:
           JIRA_DOMAIN:      !Ref JiraDomainParam

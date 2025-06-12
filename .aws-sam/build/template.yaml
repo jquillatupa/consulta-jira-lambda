@@ -1,53 +1,20 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: "Plantilla SAM para ValidarHU con 3 layers y funci\xF3n en Python 3.10"
+Description: Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
 Globals:
   Function:
-    Runtime: python3.10
     Timeout: 900
     MemorySize: 1024
 Resources:
-  DataScienceLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-      SamResourceId: DataScienceLayer
-    Properties:
-      Description: Dependencias DataScience
-      ContentUri: DataScienceLayer
-      CompatibleRuntimes:
-      - python3.10
-  HttpLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-      SamResourceId: HttpLayer
-    Properties:
-      Description: Dependencias HTTP/Jira
-      ContentUri: HttpLayer
-      CompatibleRuntimes:
-      - python3.10
-  NlpLayer:
-    Type: AWS::Serverless::LayerVersion
-    Metadata:
-      BuildMethod: python3.10
-      SamResourceId: NlpLayer
-    Properties:
-      Description: Dependencias NLP
-      ContentUri: NlpLayer
-      CompatibleRuntimes:
-      - python3.10
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
-      Handler: app.lambda_handler
-      CodeUri: ValidarHUFunction
-      Runtime: python3.10
-      Layers:
-      - Ref: DataScienceLayer
-      - Ref: HttpLayer
-      - Ref: NlpLayer
+      PackageType: Image
+      ImageUri: validarhu-lambda:latest
+      ImageConfig:
+        Command:
+        - app.lambda_handler
       Environment:
         Variables:
           JIRA_DOMAIN:
@@ -62,8 +29,6 @@ Resources:
       - S3CrudPolicy:
           BucketName:
             Ref: OutputS3Bucket
-    Metadata:
-      SamResourceId: ValidarHUFunction
 Parameters:
   JiraDomainParam:
     Type: String
