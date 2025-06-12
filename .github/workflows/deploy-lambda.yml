@@ -22,11 +22,6 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🛠️ Remove hardcoded ImageUri
-        run: |
-          # Elimina cualquier línea ImageUri de la plantilla
-          sed -i '/ImageUri:/d' template.yaml
-
       - name: 🔑 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -46,10 +41,15 @@ jobs:
           aws ecr describe-repositories --repository-names $ECR_REPOSITORY \
             || aws ecr create-repository --repository-name $ECR_REPOSITORY
 
-      - name: 🏗️ Build & Push Docker image
+      - name: 🏗️ Build, Tag & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          docker build -t $IMAGE_URI .
+          # Tag both `latest` (for SAM local resolution) and the commit SHA (for ECR)
+          docker build \
+            -t validarhu-lambda:latest \
+            -t $IMAGE_URI \
+            .
+          # Push only the SHA-tagged image to ECR
           docker push $IMAGE_URI
 
       - name: 🏗️ SAM Build
@@ -58,12 +58,11 @@ jobs:
 
       - name: 🚀 SAM Deploy
         run: |
-          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
           sam deploy \
             --stack-name       $STACK_NAME \
             --region           $AWS_REGION \
             --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --image-repositories "ValidarHUFunction=${IMAGE_URI}" \
+            --resolve-image-repos \
             --resolve-s3 \
             --parameter-overrides \
                 JiraDomainParam=$JIRA_DOMAIN \
