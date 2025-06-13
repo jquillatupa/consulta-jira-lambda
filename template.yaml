@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: "Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10"
+Description: Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
 
 Globals:
   Function:
@@ -29,6 +29,14 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref OutputS3Bucket
+
+      # ← aquí añadimos el endpoint HTTP
+      Events:
+        HttpApiInvoke:
+          Type: HttpApi            # crea automáticamente un HttpApi
+          Properties:
+            Path: /validar         # ruta pública
+            Method: post           # verbo HTTP
 
 Parameters:
   JiraDomainParam:
