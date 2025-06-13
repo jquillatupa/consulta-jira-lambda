@@ -222,7 +222,7 @@ def lambda_handler(event, context):
 
     # 6) Scoring y segundo excel
     #df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
-# hazlo asíi:
+# hazlo así:
     df["Puntaje Descripción"] = (
         df
         .apply(lambda row: evaluar_descripcion(row.get("Description", "")), axis=1)

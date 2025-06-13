@@ -10,20 +10,8 @@ Globals:
 Resources:
 
   ###################################
-  # 1) Definimos el HTTP API Gateway
-  ###################################
-  ValidarHUHttpApi:
-    Type: AWS::Serverless::HttpApi
-    Properties:
-      Name: ValidarHUApi
-      CorsConfiguration:
-        AllowOrigins:
-          - !GetAtt ValidarHUHttpApi.ApiEndpoint
-        AllowMethods:
-          - POST
-
-  ###################################
-  # 2) Función empaquetada como imagen
+  #  Función empaquetada como imagen
+  #  + endpoint HTTP implicit
   ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
@@ -44,16 +32,15 @@ Resources:
             BucketName: !Ref OutputS3Bucket
       Events:
         ValidateEndpoint:
-          Type: HttpApi
+          Type: HttpApi   # SAM crea el Api y la stage automáticamente
           Properties:
-            ApiId: !Ref ValidarHUHttpApi
             Path: /validar
-            Method: POST
+            Method: post
 
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira (p.ej. https://miempresa.atlassian.net)"
+    Description: "Dominio de Jira (p.ej. miempresa.atlassian.net)"
   JiraUserParam:
     Type: String
     Description: "Usuario de Jira (email)"
@@ -65,10 +52,6 @@ Parameters:
     Description: "Bucket S3 donde subiremos los reportes"
 
 Outputs:
-  ApiEndpoint:
-    Description: "URL base de tu HTTP API"
-    Value: !GetAtt ValidarHUHttpApi.ApiEndpoint
-
-  ValidatePath:
-    Description: "Endpoint completo (/validar)"
-    Value: !Sub "${ApiEndpoint}/validar"
+  ValidateURL:
+    Description: "URL pública del endpoint /validar"
+    Value: !Sub "https://${ValidarHUFunction.HttpApi.EventEndpoint}/validar"
