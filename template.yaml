@@ -1,36 +1,44 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
+Description: Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
 
 Globals:
   Function:
-    Timeout: 900
+    Timeout: 900       # 15 minutos
     MemorySize: 1024
 
 Resources:
-  # 1) Defino el HTTP API sin autorizer por defecto
+
+  ###################################
+  # 1) Defino el HTTP API sin auth
+  ###################################
   ValidarHUHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       Name: ValidarHUApi
       CorsConfiguration:
-        AllowOrigins: ['*']
-        AllowMethods: ['POST']
-      Auth:                            # <— aquí le digo que no use nada
-        DefaultAuthorizer: NONE
+        AllowOrigins:
+          - '*'           # en prod cámbialo a tu dominio
+        AllowMethods:
+          - POST
+      Auth: {}            # <-- anula cualquier authorizer, deja la API pública
 
-  # 2) Mi función empaquetada como imagen
+  ###################################
+  # 2) Función empaquetada como imagen
+  ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: ValidarHUFunction
       PackageType: Image
       ImageUri: validarhu-lambda:latest
       ImageConfig:
         Command: ["app.lambda_handler"]
       Environment:
         Variables:
-          JIRA_DOMAIN:    !Ref JiraDomainParam
-          JIRA_USER:      !Ref JiraUserParam
-          JIRA_API_TOKEN: !Ref JiraApiTokenParam
+          JIRA_DOMAIN:      !Ref JiraDomainParam
+          JIRA_USER:        !Ref JiraUserParam
+          JIRA_API_TOKEN:   !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3Bucket
       Policies:
         - S3CrudPolicy:
@@ -39,20 +47,28 @@ Resources:
         HttpApiInvoke:
           Type: HttpApi
           Properties:
-            ApiId: !Ref ValidarHUHttpApi   # apunto al API que acabo de definir
+            ApiId: !Ref ValidarHUHttpApi
             Path: /validar
             Method: post
 
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira"
+    Description: "Dominio de Jira (p.ej. https://miempresa.atlassian.net)"
   JiraUserParam:
     Type: String
-    Description: "Usuario de Jira"
+    Description: "Usuario de Jira (email)"
   JiraApiTokenParam:
     Type: String
     Description: "API token de Jira"
   OutputS3Bucket:
     Type: String
-    Description: "Bucket S3 de salida"
+    Description: "Bucket S3 donde subiremos los reportes"
+
+Outputs:
+  ApiUrl:
+    Description: "URL base de la HTTP API"
+    Value: !Sub "https://${ValidarHUHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  ValidateEndpoint:
+    Description: "Endpoint completo POST /validar"
+    Value: !Sub "https://${ValidarHUHttpApi}.execute-api.${AWS::Region}.amazonaws.com/validar"
