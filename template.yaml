@@ -1,54 +1,58 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >-
-  Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
-  (dinámico, SAM crea el HttpApi por ti)
 
 Globals:
   Function:
-    Timeout: 900       # 15 minutos
+    Timeout: 900
     MemorySize: 1024
 
 Resources:
+  # 1) Defino el HTTP API sin autorizer por defecto
+  ValidarHUHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: ValidarHUApi
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['POST']
+      Auth:                            # <— aquí le digo que no use nada
+        DefaultAuthorizer: NONE
 
-  ###################################
-  # Función empaquetada como imagen
-  ###################################
+  # 2) Mi función empaquetada como imagen
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: ValidarHUFunction
       PackageType: Image
       ImageUri: validarhu-lambda:latest
       ImageConfig:
         Command: ["app.lambda_handler"]
       Environment:
         Variables:
-          JIRA_DOMAIN:      !Ref JiraDomainParam
-          JIRA_USER:        !Ref JiraUserParam
-          JIRA_API_TOKEN:   !Ref JiraApiTokenParam
+          JIRA_DOMAIN:    !Ref JiraDomainParam
+          JIRA_USER:      !Ref JiraUserParam
+          JIRA_API_TOKEN: !Ref JiraApiTokenParam
           OUTPUT_S3_BUCKET: !Ref OutputS3Bucket
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref OutputS3Bucket
-
       Events:
-        ValidateEndpoint:            # nombre arbitrario para el evento
-          Type: HttpApi              # ojo: HttpApi, no Api, ni ApiGateway, ni nada más
+        HttpApiInvoke:
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ValidarHUHttpApi   # apunto al API que acabo de definir
             Path: /validar
             Method: post
 
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: "Dominio de Jira (p.ej. miempresa.atlassian.net)"
+    Description: "Dominio de Jira"
   JiraUserParam:
     Type: String
-    Description: "Usuario de Jira (email)"
+    Description: "Usuario de Jira"
   JiraApiTokenParam:
     Type: String
     Description: "API token de Jira"
   OutputS3Bucket:
     Type: String
-    Description: "Bucket S3 donde subiremos los reportes"
+    Description: "Bucket S3 de salida"
