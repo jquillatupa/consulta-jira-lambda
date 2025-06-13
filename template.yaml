@@ -1,6 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
+Description: >-
+  Plantilla SAM para ValidarHU empaquetada como imagen Docker Python 3.10
+  (dinámico, SAM crea el HttpApi por ti)
 
 Globals:
   Function:
@@ -10,8 +12,7 @@ Globals:
 Resources:
 
   ###################################
-  #  Función empaquetada como imagen
-  #  + endpoint HTTP implicit
+  # Función empaquetada como imagen
   ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
@@ -30,9 +31,10 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref OutputS3Bucket
+
       Events:
-        ValidateEndpoint:
-          Type: HttpApi   # SAM crea el Api y la stage automáticamente
+        ValidateEndpoint:            # nombre arbitrario para el evento
+          Type: HttpApi              # ojo: HttpApi, no Api, ni ApiGateway, ni nada más
           Properties:
             Path: /validar
             Method: post
@@ -50,8 +52,3 @@ Parameters:
   OutputS3Bucket:
     Type: String
     Description: "Bucket S3 donde subiremos los reportes"
-
-Outputs:
-  ValidateURL:
-    Description: "URL pública del endpoint /validar"
-    Value: !Sub "https://${ValidarHUFunction.HttpApi.EventEndpoint}/validar"
