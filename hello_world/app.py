@@ -137,6 +137,7 @@ def lambda_handler(event, context):
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
     jira_api_token = os.getenv("JIRA_API_TOKEN")
+    logger.info(f"JIRA_API_TOKEN length={len(jira_api_token or '')}") 
     bucket         = os.getenv("OUTPUT_S3_BUCKET")
 
     faltan = [v for v in ["JIRA_DOMAIN","JIRA_USER","JIRA_API_TOKEN","OUTPUT_S3_BUCKET"] if not os.getenv(v)]
@@ -220,7 +221,12 @@ def lambda_handler(event, context):
     s3.upload_file(tmp1, bucket, key1)
 
     # 6) Scoring y segundo excel
-    df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
+    #df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
+# hazlo así:
+    df["Puntaje Descripción"] = (
+        df
+        .apply(lambda row: evaluar_descripcion(row.get("Description", "")), axis=1)
+    )
     df["Puntaje Criterios"]   = df["Criterios de aceptación"].apply(evaluar_criterios)
     df["Puntaje Asignatario"]  = df["Assignee"].apply(evaluar_asignatario)
     df["Puntaje Subtareas"]   = df["Número de Sub-tareas"].apply(evaluar_subtareas)

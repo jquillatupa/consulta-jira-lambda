@@ -29,6 +29,12 @@ Resources:
       - S3CrudPolicy:
           BucketName:
             Ref: OutputS3Bucket
+      Events:
+        HttpApiInvoke:
+          Type: HttpApi
+          Properties:
+            Path: /validar
+            Method: post
 Parameters:
   JiraDomainParam:
     Type: String
