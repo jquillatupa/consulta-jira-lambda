@@ -1,4 +1,4 @@
-name: Build and Deploy SAM Container Application
+name: Build and Deploy SAM Container Applicationn
 
 on:
   push:

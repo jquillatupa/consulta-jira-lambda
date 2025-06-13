@@ -20,7 +20,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------
-# 1) Configuración inicial
+# 1) Configuración iniciall
 # ---------------------------------------------------
 START_DATE = datetime(2025, 1, 1)
 END_DATE   = datetime(2025, 3, 31, 23, 59, 59)
