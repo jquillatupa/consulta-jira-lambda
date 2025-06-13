@@ -36,7 +36,7 @@ P6 = 15
 try:
     nlp = es_core_news_sm.load()
 except OSError:
-    #spacy_download("es_core_news_sm")
+    # spacy_download("es_core_news_sm")
     nlp = es_core_news_sm.load()
 
 s3 = boto3.client("s3")
@@ -60,7 +60,8 @@ def _bloque_cqp(texto):
     c = q = p = False
     for l in lines:
         w = l.split()
-        if not w: continue
+        if not w:
+            continue
         if w[0]=='como'         and len(w)>1: c = True
         if w[0] in variantes    and len(w)>1: q = True
         if w[0]=='para'         and len(w)>1: p = True
@@ -90,8 +91,10 @@ def evaluar_asignatario(a):
     return P3 if isinstance(a, str) and a.strip() else 0
 
 def evaluar_subtareas(n):
-    try: return P4 if int(n)>1 else 0
-    except: return 0
+    try:
+        return P4 if int(n)>1 else 0
+    except:
+        return 0
 
 def evaluar_epica(p):
     return P5 if isinstance(p, str) and p.strip() else 0
@@ -122,7 +125,8 @@ def fetch_projects_by_category(category_id, jira_domain, jira_user, jira_api_tok
         resp.raise_for_status()
         data = resp.json()
         all_values.extend(data.get("values", []))
-        if data.get("isLast", True): break
+        if data.get("isLast", True):
+            break
         start_at += data.get("maxResults", max_results)
     return all_values
 
@@ -180,22 +184,35 @@ def lambda_handler(event, context):
             estado = ultimo or issue.fields.status.name
             parent = getattr(issue.fields, "parent", None)
             data.append({
-                "Proyecto":           pk,
+                "Proyecto":            pk,
                 "Nombre del Proyecto": next((x["name"] for x in proyectos if x["key"]==pk), ""),
                 "Categoría Proyecto":  next((x["category"] for x in proyectos if x["key"]==pk), ""),
                 "Responsable Proyecto":next((x["lead"] for x in proyectos if x["key"]==pk), ""),
-                "Key":                issue.key,
-                "Summary":            issue.fields.summary,
-                "Status":             estado,
-                "Description":        issue.fields.description or "",
+                "Key":                 issue.key,
+                "Summary":             issue.fields.summary,
+                "Status":              estado,
+                "Description":         issue.fields.description or "",
                 "Criterios de aceptación": getattr(issue.fields, CUSTOM_FIELD_ID, ""),
-                "Epica Principal":    getattr(parent, "fields", {}).__dict__.get("summary","") if parent else "",
-                "Assignee":           issue.fields.assignee.displayName if issue.fields.assignee else "",
-                "Número de Sub-tareas": len(issue.fields.subtasks)
+                "Epica Principal":     getattr(parent, "fields", {}).__dict__.get("summary","") if parent else "",
+                "Assignee":            issue.fields.assignee.displayName if issue.fields.assignee else "",
+                "Número de Sub-tareas":len(issue.fields.subtasks)
             })
 
     # 5) Exportar primer excel (raw)
     df = pd.DataFrame(data)
+
+    # Asegurar que existen columnas necesarias para scoring
+    cols = [
+        "Description",
+        "Criterios de aceptación",
+        "Assignee",
+        "Número de Sub-tareas",
+        "Epica Principal"
+    ]
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     tmp1 = f"/tmp/jira_data_{ts}.xlsx"
     df.to_excel(tmp1, sheet_name="Stories", index=False)
@@ -228,8 +245,8 @@ def lambda_handler(event, context):
     ]].sum(axis=1)
 
     def cls(v):
-        return ("Excelente" if v>=90 else
-                "Adecuado"   if v>=80 else
+        return ("Excelente"  if v>=90 else
+                "Adecuado"    if v>=80 else
                 "Por mejorar" if v>=65 else
                 "Incompleto"  if v>=50 else
                 "Desastre")
