@@ -20,10 +20,8 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------
-# 1) Configuración iniciall
+# 1) Configuración inicial
 # ---------------------------------------------------
-START_DATE = datetime(2025, 1, 1)
-END_DATE   = datetime(2025, 3, 31, 23, 59, 59)
 IDS_CATEGORIAS = ["10008", "10009"]
 CUSTOM_FIELD_ID = "customfield_10031"
 P1 = 20
@@ -36,7 +34,6 @@ P6 = 15
 try:
     nlp = es_core_news_sm.load()
 except OSError:
-    # spacy_download("es_core_news_sm")
     nlp = es_core_news_sm.load()
 
 s3 = boto3.client("s3")
@@ -137,12 +134,25 @@ def lambda_handler(event, context):
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
     jira_api_token = os.getenv("JIRA_API_TOKEN")
-    logger.info(f"JIRA_API_TOKEN length={len(jira_api_token or '')}") 
     bucket         = os.getenv("OUTPUT_S3_BUCKET")
 
     faltan = [v for v in ["JIRA_DOMAIN","JIRA_USER","JIRA_API_TOKEN","OUTPUT_S3_BUCKET"] if not os.getenv(v)]
     if faltan:
         return {"statusCode":400, "body": json.dumps({"error":f"Faltan vars: {faltan}"})}
+
+    # Leer fechas desde el JSON del body
+    try:
+        body = json.loads(event["body"])
+        START_DATE = datetime.fromisoformat(body["start_date"])
+        END_DATE   = datetime.fromisoformat(body["end_date"])
+    except (KeyError, ValueError, TypeError) as e:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Parámetros 'start_date' y 'end_date' requeridos y deben tener formato ISO (YYYY-MM-DD o YYYY-MM-DDTHH:MM:SS)",
+                "details": str(e)
+            })
+        }
 
     try:
         jira = JIRA({"server":jira_domain}, basic_auth=(jira_user, jira_api_token))
@@ -163,8 +173,6 @@ def lambda_handler(event, context):
                     "lead":         p.get("lead",{}).get("displayName")
                 })
 
-    #PROJECT_KEYS = [p["key"] for p in proyectos]
-    #Seteo proyectos en Duro para pruebas
     PROJECT_KEYS = ["TEODV"]
     data  = []
     no_issues = []
@@ -200,43 +208,27 @@ def lambda_handler(event, context):
                 "Número de Sub-tareas":len(issue.fields.subtasks)
             })
 
-    # 5) Exportar primer excel (raw)
     df = pd.DataFrame(data)
 
-    # Asegurar que existen columnas necesarias para scoring
-    cols = [
-        "Description",
-        "Criterios de aceptación",
-        "Assignee",
-        "Número de Sub-tareas",
-        "Epica Principal"
-    ]
-    for c in cols:
+    for c in ["Description", "Criterios de aceptación", "Assignee", "Número de Sub-tareas", "Epica Principal"]:
         if c not in df.columns:
             df[c] = ""
-    logger.info(f"Columnas del DataFrame: {df.columns.tolist()}")
+
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     tmp1 = f"/tmp/jira_data_{ts}.xlsx"
-    df.to_excel(tmp1, sheet_name="Stories", index=False)
     key1 = f"reports/DataJira/jira_data_{ts}.xlsx"
+    df.to_excel(tmp1, sheet_name="Stories", index=False)
     s3.upload_file(tmp1, bucket, key1)
 
-    # 6) Scoring y segundo excel
-    #df["Puntaje Descripción"] = df["Description"].apply(evaluar_descripcion)
-# hazlo asíi:
-    df["Puntaje Descripción"] = (
-        df
-        .apply(lambda row: evaluar_descripcion(row.get("Description", "")), axis=1)
-    )
+    df["Puntaje Descripción"] = df.apply(lambda row: evaluar_descripcion(row.get("Description", "")), axis=1)
     df["Puntaje Criterios"]   = df["Criterios de aceptación"].apply(evaluar_criterios)
-    df["Puntaje Asignatario"]  = df["Assignee"].apply(evaluar_asignatario)
+    df["Puntaje Asignatario"] = df["Assignee"].apply(evaluar_asignatario)
     df["Puntaje Subtareas"]   = df["Número de Sub-tareas"].apply(evaluar_subtareas)
     df["Puntaje Épica"]       = df["Epica Principal"].apply(evaluar_epica)
 
     backlog_flag = df.groupby("Proyecto")["Status"] \
                      .apply(lambda s: P6 if s.str.lower().eq("backlog priorizado").any() else 0)
 
-    # ← Aquí está la corrección: dobles corchetes para seleccionar varias columnas
     resumen = (
         df
         .groupby(["Proyecto", "Nombre del Proyecto", "Responsable Proyecto"])
@@ -259,7 +251,6 @@ def lambda_handler(event, context):
                 "Desastre")
     resumen["Clasificación"] = resumen["Puntaje Total"].apply(cls)
 
-    # 7) Exportar segundo excel (analizado)
     tmp2 = f"/tmp/jira_data_anali_{ts}.xlsx"
     with pd.ExcelWriter(tmp2, engine="xlsxwriter") as w:
         df.to_excel(w, sheet_name="User Stories", index=False)
