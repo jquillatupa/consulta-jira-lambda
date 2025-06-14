@@ -17,7 +17,6 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
@@ -31,30 +30,29 @@ jobs:
 
       - name: 🆔 Get AWS Account ID
         run: |
-          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account --output text)" >> $GITHUB_ENV
 
       - name: 🐳 Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: 🏷️ Create ECR repo if not exists
         run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY \
-            || aws ecr create-repository --repository-name $ECR_REPOSITORY
+          aws ecr describe-repositories \
+            --repository-names $ECR_REPOSITORY \
+            || aws ecr create-repository \
+              --repository-name $ECR_REPOSITORY
 
       - name: 🏗️ Build, Tag & Push Docker image
         run: |
-          # Generamos un tag único con timestamp
+          # Tag único con timestamp para forzar actualización
           IMAGE_TAG=$(date +'%Y%m%d%H%M%S')
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-          # Construimos y etiquetamos
-          docker build \
-            -t $IMAGE_URI \
-            .
-
-          # Push de la imagen con tag único
-          docker push $IMAGE_URI
+          # Construir y empujar
+          docker build -t $IMAGE_URI .
+          docker push   $IMAGE_URI
 
       - name: 🏗️ SAM Build
         run: |
@@ -62,17 +60,18 @@ jobs:
 
       - name: 🚀 SAM Deploy
         env:
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          IMAGE_URI: ${{ env.IMAGE_URI }}
         run: |
           sam deploy \
-            --stack-name       $STACK_NAME \
-            --region           $AWS_REGION \
-            --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --stack-name        $STACK_NAME \
+            --region            $AWS_REGION \
+            --capabilities      CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --image-repositories "ValidarHUFunction=${IMAGE_URI}" \
+            --resolve-s3 \
             --parameter-overrides \
                 JiraDomainParam=$JIRA_DOMAIN \
                 JiraUserParam=$JIRA_USER \
                 JiraApiTokenParam=$JIRA_API_TOKEN \
                 OutputS3Bucket=$OUTPUT_S3_BUCKET \
-                ImageTagParam=$IMAGE_TAG \
             --no-fail-on-empty-changeset \
             --no-confirm-changeset
