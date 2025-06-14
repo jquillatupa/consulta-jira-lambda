@@ -44,12 +44,12 @@ jobs:
       - name: 🏗️ Build, Tag & Push Docker image
         run: |
           IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          # Etiquetamos como 'latest' para sam local y con el SHA para ECR
+          # Tag both `latest` (for SAM local resolution) and the commit SHA (for ECR)
           docker build \
             -t validarhu-lambda:latest \
             -t $IMAGE_URI \
             .
-          # Empujamos únicamente la etiqueta con SHA a ECR
+          # Push only the SHA-tagged image to ECR
           docker push $IMAGE_URI
 
       - name: 🏗️ SAM Build
@@ -59,11 +59,11 @@ jobs:
       - name: 🚀 SAM Deploy
         run: |
           sam deploy \
-            --stack-name        $STACK_NAME \
-            --region            $AWS_REGION \
-            --s3-bucket         my-deploy-bucket-lambda \
-            --capabilities      CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --image-repositories "ValidarHUFunction=${IMAGE_URI}" \
+            --stack-name       $STACK_NAME \
+            --region           $AWS_REGION \
+            --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --resolve-image-repos \
+            --resolve-s3 \
             --parameter-overrides \
                 JiraDomainParam=$JIRA_DOMAIN \
                 JiraUserParam=$JIRA_USER \
