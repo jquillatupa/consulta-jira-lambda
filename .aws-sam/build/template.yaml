@@ -6,6 +6,16 @@ Globals:
     Timeout: 900
     MemorySize: 1024
 Resources:
+  ValidarHUHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: ValidarHUApi
+      CorsConfiguration:
+        AllowOrigins:
+        - '*'
+        AllowMethods:
+        - POST
+      Auth: {}
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -30,15 +40,17 @@ Resources:
           BucketName:
             Ref: OutputS3Bucket
       Events:
-        ValidateEndpoint:
+        HttpApiInvoke:
           Type: HttpApi
           Properties:
+            ApiId:
+              Ref: ValidarHUHttpApi
             Path: /validar
             Method: post
 Parameters:
   JiraDomainParam:
     Type: String
-    Description: Dominio de Jira (p.ej. miempresa.atlassian.net)
+    Description: Dominio de Jira (p.ej. https://miempresa.atlassian.net)
   JiraUserParam:
     Type: String
     Description: Usuario de Jira (email)
@@ -49,7 +61,11 @@ Parameters:
     Type: String
     Description: Bucket S3 donde subiremos los reportes
 Outputs:
-  ValidateURL:
-    Description: "URL p\xFAblica del endpoint /validar"
+  ApiUrl:
+    Description: URL base de la HTTP API
     Value:
-      Fn::Sub: https://${ValidarHUFunction.HttpApi.EventEndpoint}/validar
+      Fn::Sub: https://${ValidarHUHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  ValidateEndpoint:
+    Description: Endpoint completo POST /validar
+    Value:
+      Fn::Sub: https://${ValidarHUHttpApi}.execute-api.${AWS::Region}.amazonaws.com/validar

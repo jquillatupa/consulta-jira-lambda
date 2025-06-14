@@ -163,8 +163,9 @@ def lambda_handler(event, context):
                     "lead":         p.get("lead",{}).get("displayName")
                 })
 
-    PROJECT_KEYS = [p["key"] for p in proyectos]
-
+    #PROJECT_KEYS = [p["key"] for p in proyectos]
+    #Seteo proyectos en Duro para pruebas
+    PROJECT_KEYS = ["TEODV"]
     data  = []
     no_issues = []
     for pk in PROJECT_KEYS:
@@ -213,7 +214,7 @@ def lambda_handler(event, context):
     for c in cols:
         if c not in df.columns:
             df[c] = ""
-
+    logger.info(f"Columnas del DataFrame: {df.columns.tolist()}")
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     tmp1 = f"/tmp/jira_data_{ts}.xlsx"
     df.to_excel(tmp1, sheet_name="Stories", index=False)
