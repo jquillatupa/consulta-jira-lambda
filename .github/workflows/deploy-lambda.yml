@@ -1,26 +1,78 @@
-# … desencadenadores, checkout, creds, etc …
+name: Build and Deploy SAM Container Application
 
-- name: 🏗️ Build, Tag & Push Docker image
-  run: |
-    IMAGE_TAG=$(date +'%Y%m%d%H%M%S')
-    IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
-    echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-    docker build -t $IMAGE_URI .
-    docker push $IMAGE_URI
+on:
+  push:
+    branches:
+      - main
 
-- name: 🚀 SAM Deploy
-  env:
-    IMAGE_TAG: ${{ env.IMAGE_TAG }}
-  run: |
-    sam deploy \
-      --stack-name       $STACK_NAME \
-      --region           $AWS_REGION \
-      --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-      --parameter-overrides \
-          JiraDomainParam=$JIRA_DOMAIN \
-          JiraUserParam=$JIRA_USER \
-          JiraApiTokenParam=$JIRA_API_TOKEN \
-          OutputS3Bucket=$OUTPUT_S3_BUCKET \
-          ImageTagParam=$IMAGE_TAG \
-      --no-fail-on-empty-changeset \
-      --no-confirm-changeset
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: validarhu-lambda
+  STACK_NAME: mi-stack-jira
+  JIRA_DOMAIN:      ${{ secrets.JIRA_DOMAIN }}
+  JIRA_USER:        ${{ secrets.JIRA_USER }}
+  JIRA_API_TOKEN:   ${{ secrets.JIRA_API_TOKEN }}
+  OUTPUT_S3_BUCKET: reportes-jira-mi-proyecto-20
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: 🆔 Get AWS Account ID
+        run: |
+          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: 🐳 Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: 🏷️ Create ECR repo if not exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY \
+            || aws ecr create-repository --repository-name $ECR_REPOSITORY
+
+      - name: 🏗️ Build, Tag & Push Docker image
+        run: |
+          # Generamos un tag único con timestamp
+          IMAGE_TAG=$(date +'%Y%m%d%H%M%S')
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+          # Construimos y etiquetamos
+          docker build \
+            -t $IMAGE_URI \
+            .
+
+          # Push de la imagen con tag único
+          docker push $IMAGE_URI
+
+      - name: 🏗️ SAM Build
+        run: |
+          sam build --cached --use-container
+
+      - name: 🚀 SAM Deploy
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          sam deploy \
+            --stack-name       $STACK_NAME \
+            --region           $AWS_REGION \
+            --capabilities     CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+                JiraDomainParam=$JIRA_DOMAIN \
+                JiraUserParam=$JIRA_USER \
+                JiraApiTokenParam=$JIRA_API_TOKEN \
+                OutputS3Bucket=$OUTPUT_S3_BUCKET \
+                ImageTagParam=$IMAGE_TAG \
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset
