@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Lambda Local",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5891
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/hello_world",
+          "remoteRoot": "/var/task"
+        }
+      ]
+    }
+  ]
+}

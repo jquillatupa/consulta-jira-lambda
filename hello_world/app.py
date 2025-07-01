@@ -19,9 +19,6 @@ from spacy.cli import download as spacy_download
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# ---------------------------------------------------
-# 1) Configuración inicial
-# ---------------------------------------------------
 IDS_CATEGORIAS = ["10008", "10009"]
 CUSTOM_FIELD_ID = "customfield_10031"
 P1 = 20
@@ -38,9 +35,6 @@ except OSError:
 
 s3 = boto3.client("s3")
 
-# ---------------------------------------------------
-# 2) Funciones auxiliares para scoring
-# ---------------------------------------------------
 def es_texto_valido(texto):
     return isinstance(texto, str) and bool(texto.strip())
 
@@ -96,40 +90,6 @@ def evaluar_subtareas(n):
 def evaluar_epica(p):
     return P5 if isinstance(p, str) and p.strip() else 0
 
-# ---------------------------------------------------
-# 3) Función para extraer proyectos por categoría
-# ---------------------------------------------------
-HEADERS = {"Accept":"application/json"}
-
-def fetch_projects_by_category(category_id, jira_domain, jira_user, jira_api_token):
-    all_values = []
-    start_at   = 0
-    max_results= 100
-    while True:
-        url = f"{jira_domain}/rest/api/3/project/search"
-        params = {
-            "categoryId": category_id,
-            "expand":     "lead",
-            "maxResults": max_results,
-            "startAt":    start_at
-        }
-        resp = requests.get(
-            url,
-            auth=(jira_user, jira_api_token),
-            headers=HEADERS,
-            params=params
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        all_values.extend(data.get("values", []))
-        if data.get("isLast", True):
-            break
-        start_at += data.get("maxResults", max_results)
-    return all_values
-
-# ---------------------------------------------------
-# 4) Lambda handler
-# ---------------------------------------------------
 def lambda_handler(event, context):
     jira_domain    = os.getenv("JIRA_DOMAIN")
     jira_user      = os.getenv("JIRA_USER")
@@ -140,7 +100,6 @@ def lambda_handler(event, context):
     if faltan:
         return {"statusCode":400, "body": json.dumps({"error":f"Faltan vars: {faltan}"})}
 
-    # Leer fechas desde el JSON del body
     try:
         body = json.loads(event["body"])
         START_DATE = datetime.fromisoformat(body["start_date"])
@@ -160,44 +119,45 @@ def lambda_handler(event, context):
         logger.exception("No se pudo autenticar en Jira")
         return {"statusCode":500, "body":json.dumps({"error":"Autenticación Jira fallida","details":str(e)})}
 
-    proyectos = []
-    vistos     = set()
-    for cat in IDS_CATEGORIAS:
-        for p in fetch_projects_by_category(cat, jira_domain, jira_user, jira_api_token):
-            if p["key"] not in vistos:
-                vistos.add(p["key"])
-                proyectos.append({
-                    "key":          p["key"],
-                    "name":         p["name"],
-                    "category":     p.get("projectCategory",{}).get("name"),
-                    "lead":         p.get("lead",{}).get("displayName")
-                })
-
-    PROJECT_KEYS = ["TEODV"]
     data  = []
     no_issues = []
-    for pk in PROJECT_KEYS:
+
+    project_key = "TEODV"
+    jql = f'project="{project_key}" AND issuetype=Story'
+    start_at = 0
+    max_results = 100
+    total = None
+
+    while total is None or start_at < total:
         issues = jira.search_issues(
-            f'project="{pk}" AND issuetype=Story',
-            maxResults=1000, expand="changelog"
+            jql,
+            startAt=start_at,
+            maxResults=max_results,
+            expand="changelog"
         )
-        if not issues:
-            no_issues.append(pk)
+
+        if start_at == 0 and not issues:
+            no_issues.append(project_key)
+            break
+
+        if total is None:
+            total = issues.total
+
         for issue in issues:
             ultimo = None
             for h in issue.changelog.histories:
                 dt = datetime.strptime(h.created[:19], "%Y-%m-%dT%H:%M:%S")
-                if START_DATE<=dt<=END_DATE:
+                if START_DATE <= dt <= END_DATE:
                     for it in h.items:
-                        if it.field=="status":
+                        if it.field == "status":
                             ultimo = it.toString
             estado = ultimo or issue.fields.status.name
             parent = getattr(issue.fields, "parent", None)
             data.append({
-                "Proyecto":            pk,
-                "Nombre del Proyecto": next((x["name"] for x in proyectos if x["key"]==pk), ""),
-                "Categoría Proyecto":  next((x["category"] for x in proyectos if x["key"]==pk), ""),
-                "Responsable Proyecto":next((x["lead"] for x in proyectos if x["key"]==pk), ""),
+                "Proyecto":            project_key,
+                "Nombre del Proyecto": "Proyecto TEODV",
+                "Categoría Proyecto":  "",
+                "Responsable Proyecto": "",
                 "Key":                 issue.key,
                 "Summary":             issue.fields.summary,
                 "Status":              estado,
@@ -207,6 +167,8 @@ def lambda_handler(event, context):
                 "Assignee":            issue.fields.assignee.displayName if issue.fields.assignee else "",
                 "Número de Sub-tareas":len(issue.fields.subtasks)
             })
+
+        start_at += max_results
 
     df = pd.DataFrame(data)
 
@@ -226,9 +188,6 @@ def lambda_handler(event, context):
     df["Puntaje Subtareas"]   = df["Número de Sub-tareas"].apply(evaluar_subtareas)
     df["Puntaje Épica"]       = df["Epica Principal"].apply(evaluar_epica)
 
-    backlog_flag = df.groupby("Proyecto")["Status"] \
-                     .apply(lambda s: P6 if s.str.lower().eq("backlog priorizado").any() else 0)
-
     resumen = (
         df
         .groupby(["Proyecto", "Nombre del Proyecto", "Responsable Proyecto"])
@@ -237,7 +196,7 @@ def lambda_handler(event, context):
         .reset_index()
     )
 
-    resumen["C6 Backlog"]    = resumen["Proyecto"].map(backlog_flag)
+    resumen["C6 Backlog"]    = 0
     resumen["Puntaje Total"] = resumen[[
         "Puntaje Descripción", "Puntaje Criterios", "Puntaje Asignatario",
         "Puntaje Subtareas", "Puntaje Épica", "C6 Backlog"

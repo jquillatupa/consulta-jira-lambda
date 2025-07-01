@@ -24,14 +24,13 @@ Resources:
       Auth: {}            # <-- anula cualquier authorizer, deja la API pública
 
   ###################################
-  # 2) Función empaquetada como imagen
+  # 2) Función empaquetada como imagen Docker local
   ###################################
   ValidarHUFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ValidarHUFunction
       PackageType: Image
-      ImageUri: validarhu-lambda:latest
       ImageConfig:
         Command: ["app.lambda_handler"]
       Environment:
@@ -50,6 +49,10 @@ Resources:
             ApiId: !Ref ValidarHUHttpApi
             Path: /validar
             Method: post
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: validarhulambda_latest
 
 Parameters:
   JiraDomainParam:

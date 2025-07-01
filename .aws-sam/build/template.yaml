@@ -21,7 +21,6 @@ Resources:
     Properties:
       FunctionName: ValidarHUFunction
       PackageType: Image
-      ImageUri: validarhu-lambda:latest
       ImageConfig:
         Command:
         - app.lambda_handler
@@ -47,6 +46,12 @@ Resources:
               Ref: ValidarHUHttpApi
             Path: /validar
             Method: post
+      ImageUri: validarhufunction:validarhulambda_latest
+    Metadata:
+      DockerContext: D:\AWS\Project\ValidarHU\consulta-jira-lambda
+      DockerTag: validarhulambda_latest
+      Dockerfile: Dockerfile
+      SamResourceId: ValidarHUFunction
 Parameters:
   JiraDomainParam:
     Type: String
